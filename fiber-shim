@@ -1,0 +1,2 @@
+#!/bin/sh
+DYLD_INSERT_LIBRARIES=`pwd`/coroutine.dylib DYLD_FORCE_FLAT_NAMESPACE=1 $@
