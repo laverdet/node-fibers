@@ -67,15 +67,15 @@ class Fiber: ObjectWrap {
      * callback; it doesn't create any new contexts until run() is called.
      */
     static Handle<Value> New(const Arguments& args) {
-      if (!args.IsConstructCall()) {
-        return FromConstructorTemplate(tmpl, args);
-      }
 
       HandleScope scope;
       if (args.Length() != 1) {
         THROW(Exception::TypeError, "Fiber expects 1 argument");
       } else if (!args[0]->IsFunction()) {
         THROW(Exception::TypeError, "Fiber expects a function");
+      } else if (!args.IsConstructCall()) {
+        Local<Value> argv[1] = { Local<Value>::New(args[0]) };
+        return tmpl->GetFunction()->NewInstance(1, argv);
       }
 
       Handle<Function> fn = Local<Function>::Cast(args[0]);

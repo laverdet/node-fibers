@@ -1,2 +1,7 @@
 #!/bin/sh
-DYLD_INSERT_LIBRARIES=`pwd`/coroutine.dylib DYLD_FORCE_FLAT_NAMESPACE=1 $@
+UNAME=`uname`
+if [[ "$UNAME" == "Linux" ]]; then
+  LD_PRELOAD=`pwd`/coroutine.so $@
+elif [[ "$UNAME" == "Darwin" ]]; then
+  DYLD_INSERT_LIBRARIES=`pwd`/coroutine.dylib DYLD_FORCE_FLAT_NAMESPACE=1 $@
+fi

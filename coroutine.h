@@ -1,4 +1,6 @@
+#ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE
+#endif
 #include <stdlib.h>
 #include <ucontext.h>
 #include <memory>
