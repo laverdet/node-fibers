@@ -7,6 +7,7 @@
 
 class Coroutine {
   public:
+    friend class Thread;
     typedef void(entry_t)(void*);
 
   private:
@@ -16,20 +17,7 @@ class Coroutine {
     std::auto_ptr<char> stack;
 
     static void trampoline(Coroutine& that, entry_t& entry, void* arg);
-
-  public:
-    /**
-     * Returns the currently-running fiber.
-     */
-    static Coroutine& current();
-
-    /**
-     * Is Coroutine-local storage via pthreads enabled? The Coroutine library should work fine
-     * without this, but programs that are not aware of coroutines may panic if they make
-     * assumptions about the stack. In order to enable this you must LD_PRELOAD (or equivalent)
-     * this library.
-     */
-    static const bool is_local_storage_enabled();
+    ~Coroutine() {}
 
     /**
      * Constructor for currently running "fiber". This is really just original thread, but we
@@ -44,11 +32,19 @@ class Coroutine {
      */
     Coroutine(Thread& t, size_t id, entry_t& entry, void* arg);
 
+  public:
     /**
-     * Don't delete Coroutines, they will delete themselves.
-     * TODO: Actually they don't!
+     * Returns the currently-running fiber.
      */
-    ~Coroutine();
+    static Coroutine& current();
+
+    /**
+     * Is Coroutine-local storage via pthreads enabled? The Coroutine library should work fine
+     * without this, but programs that are not aware of coroutines may panic if they make
+     * assumptions about the stack. In order to enable this you must LD_PRELOAD (or equivalent)
+     * this library.
+     */
+    static const bool is_local_storage_enabled();
 
     /**
      * Start or resume execution in this fiber. Note there is no explicit yield() function,
@@ -67,10 +63,11 @@ class Coroutine {
      */
     void* bottom() const;
 
+    /**
+     * Returns the size this Coroutine takes up in the heap.
+     */
+    size_t size() const;
+
     bool operator==(const Coroutine& that) const;
     bool operator==(const Coroutine* that) const;
-
-    size_t getid() const {
-      return id;
-    }
 };

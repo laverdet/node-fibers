@@ -69,18 +69,18 @@ class Thread {
     size_t fiber_ids;
     stack<size_t> freed_fiber_ids;
     vector<vector<const void*> > fls_data;
-
     static vector<pthread_dtor_t> dtors;
 
   public:
     pthread_t handle;
     Coroutine* current_fiber;
+    Coroutine* delete_me;
 
     static void free(void* that) {
       delete static_cast<Thread*>(that);
     }
 
-    Thread() : fiber_ids(1), fls_data(1), handle(NULL) {
+    Thread() : fiber_ids(1), fls_data(1), handle(NULL), delete_me(NULL) {
       current_fiber = new Coroutine(*this, 0);
     }
 
@@ -89,7 +89,9 @@ class Thread {
     }
 
     void fiber_did_finish(Coroutine& fiber) {
-      // delete ???
+      freed_fiber_ids.push(fiber.id);
+      assert(delete_me == NULL);
+      delete_me = &fiber;
     }
 
     Coroutine& new_fiber(Coroutine::entry_t& entry, void* arg) {
@@ -106,17 +108,17 @@ class Thread {
     }
 
     void* get_specific(pthread_key_t key) {
-      if (fls_data[current_fiber->getid()].size() <= key) {
+      if (fls_data[current_fiber->id].size() <= key) {
         return NULL;
       }
-      return (void*)fls_data[current_fiber->getid()][key];
+      return (void*)fls_data[current_fiber->id][key];
     }
 
     void set_specific(pthread_key_t key, const void* data) {
-      if (fls_data[current_fiber->getid()].size() <= key) {
-        fls_data[current_fiber->getid()].resize(key + 1);
+      if (fls_data[current_fiber->id].size() <= key) {
+        fls_data[current_fiber->id].resize(key + 1);
       }
-      fls_data[current_fiber->getid()][key] = data;
+      fls_data[current_fiber->id][key] = data;
     }
 
     void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
@@ -150,7 +152,6 @@ const bool Coroutine::is_local_storage_enabled() {
   return did_hook_pthreads;
 }
 
-
 Coroutine::Coroutine(Thread& t, size_t id) : thread(t), id(id) {}
 
 Coroutine::Coroutine(Thread& t, size_t id, entry_t& entry, void* arg) :
@@ -172,6 +173,12 @@ void Coroutine::run() {
   thread.current_fiber = this;
   swapcontext(&current.context, &context);
   thread.current_fiber = &current;
+  if (thread.delete_me) {
+    // TODO: Why does deleting and then reseting cause seg faults? Bad news..
+    thread.delete_me = NULL;
+    Coroutine* cr = thread.delete_me;
+    delete cr;
+  }
 }
 
 Coroutine& Coroutine::new_fiber(entry_t* entry, void* arg) {
@@ -180,6 +187,10 @@ Coroutine& Coroutine::new_fiber(entry_t* entry, void* arg) {
 
 void* Coroutine::bottom() const {
   return stack.get() - STACK_SIZE;
+}
+
+size_t Coroutine::size() const {
+  return sizeof(Coroutine) + STACK_SIZE;
 }
 
 bool Coroutine::operator==(const Coroutine& that) const {
