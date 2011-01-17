@@ -27,7 +27,7 @@ ifeq ($(NODE_PLATFORM), darwin)
   CPP_NODEFLAGS = -bundle -undefined dynamic_lookup
   COROUTINE_SO = coroutine.dylib
 endif
-COROUTINE_SO_FULL = `pwd`/$(COROUTINE_SO)
+COROUTINE_SO_FULL := $(shell echo `pwd`/$(COROUTINE_SO))
 
 all: $(COROUTINE_SO) node-fibers.node
 
