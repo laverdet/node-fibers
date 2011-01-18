@@ -1,9 +1,11 @@
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE
 #endif
+
 #include <stdlib.h>
 #include <ucontext.h>
-#include <memory>
+#include <ext/pool_allocator.h>
+#include <vector>
 
 class Coroutine {
   public:
@@ -11,10 +13,13 @@ class Coroutine {
     typedef void(entry_t)(void*);
 
   private:
+    // vector<char> will 0 out the memory first which is not necessary; this hack lets us get
+    // around that, as there is no constructor.
+    struct char_noinit { char x; };
     class Thread& thread;
     size_t id;
     ucontext_t context;
-    std::auto_ptr<char> stack;
+    std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
 
     static void trampoline(Coroutine& that, entry_t& entry, void* arg);
     ~Coroutine() {}

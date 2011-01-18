@@ -9,7 +9,11 @@
 #include <stack>
 #include <vector>
 
-#define STACK_SIZE (1024 * 1024 * 2)
+// TODO: It's clear I'm missing something with respects to ResourceConstraints.set_stack_limit.
+// No matter what I give it, it seems the stack size is always the same. And then if the actual
+// amount of memory allocated for the stack is too small it seg faults. It seems 265k is as low as
+// I can go without fixing the underlying bug.
+#define STACK_SIZE (1024 * 265)
 
 #include <iostream>
 using namespace std;
@@ -157,10 +161,10 @@ Coroutine::Coroutine(Thread& t, size_t id) : thread(t), id(id) {}
 Coroutine::Coroutine(Thread& t, size_t id, entry_t& entry, void* arg) :
   thread(t),
   id(id),
-  stack(new char[STACK_SIZE]) {
+  stack(STACK_SIZE) {
   getcontext(&context);
   context.uc_stack.ss_size = STACK_SIZE;
-  context.uc_stack.ss_sp = stack.get();
+  context.uc_stack.ss_sp = &stack[0];
   makecontext(&context, (void(*)(void))trampoline, 3, this, entry, arg);
 }
 
@@ -186,7 +190,7 @@ Coroutine& Coroutine::new_fiber(entry_t* entry, void* arg) {
 }
 
 void* Coroutine::bottom() const {
-  return stack.get() - STACK_SIZE;
+  return (char*)&stack[0] - STACK_SIZE;
 }
 
 size_t Coroutine::size() const {

@@ -7,7 +7,7 @@ CPPFLAGS = -Wall -I$(NODE_PREFIX)/include -I$(NODE_PREFIX)/include/node
 ifdef DEBUG
   CPPFLAGS += -ggdb -O0
 else
-  CPPFLAGS += -g -O3
+  CPPFLAGS += -g -O3 -minline-all-stringops
 endif
 
 ifeq ($(NODE_BITS), 32)
