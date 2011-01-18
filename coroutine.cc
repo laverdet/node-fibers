@@ -72,7 +72,7 @@ class Thread {
   private:
     size_t fiber_ids;
     stack<size_t> freed_fiber_ids;
-    vector<vector<const void*> > fls_data;
+    vector<vector<void*> > fls_data;
     static vector<pthread_dtor_t> dtors;
 
   public:
@@ -92,10 +92,31 @@ class Thread {
       assert(freed_fiber_ids.size() == fiber_ids);
     }
 
+    void coroutine_fls_dtor(Coroutine& fiber) {
+      bool did_delete;
+      vector<void*>& fiber_data = fls_data[fiber.id];
+      do {
+        did_delete = false;
+        for (size_t ii = 0; ii < fiber_data.size(); ++ii) {
+          if (fiber_data[ii]) {
+            if (dtors[ii]) {
+              void* tmp = fiber_data[ii];
+              fiber_data[ii] = NULL;
+              dtors[ii](tmp);
+              did_delete = true;
+            } else {
+              fiber_data[ii] = NULL;
+            }
+          }
+        }
+      } while (did_delete);
+    }
+
     void fiber_did_finish(Coroutine& fiber) {
       freed_fiber_ids.push(fiber.id);
       assert(delete_me == NULL);
       delete_me = &fiber;
+      coroutine_fls_dtor(fiber);
     }
 
     Coroutine& new_fiber(Coroutine::entry_t& entry, void* arg) {
@@ -103,7 +124,6 @@ class Thread {
       if (!freed_fiber_ids.empty()) {
         id = freed_fiber_ids.top();
         freed_fiber_ids.pop();
-        // TODO: clear existing TLS
       } else {
         fls_data.resize(fls_data.size() + 1);
         id = fiber_ids++;
@@ -115,19 +135,35 @@ class Thread {
       if (fls_data[current_fiber->id].size() <= key) {
         return NULL;
       }
-      return (void*)fls_data[current_fiber->id][key];
+      return fls_data[current_fiber->id][key];
     }
 
     void set_specific(pthread_key_t key, const void* data) {
       if (fls_data[current_fiber->id].size() <= key) {
         fls_data[current_fiber->id].resize(key + 1);
       }
-      fls_data[current_fiber->id][key] = data;
+      fls_data[current_fiber->id][key] = (void*)data;
     }
 
     void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
       dtors.push_back(dtor);
       *key = dtors.size() - 1; // TODO: This is NOT thread-safe! =O
+    }
+
+    void key_delete(pthread_key_t key) {
+      if (!dtors[key]) {
+        return;
+      }
+      for (size_t ii = 0; ii < fls_data.size(); ++ii) {
+        if (fls_data[ii].size() <= key) {
+          continue;
+        }
+        while (fls_data[ii][key]) {
+          void* tmp = fls_data[ii][key];
+          fls_data[ii][key] = NULL;
+          dtors[key](tmp);
+        }
+      }
     }
 };
 vector<pthread_dtor_t> Thread::dtors;
@@ -293,12 +329,12 @@ int pthread_create(pthread_t* handle, const pthread_attr_t* attr, void* (*entry)
 
 int pthread_key_delete(pthread_key_t key) {
   assert(initialized);
-  if (key <= last_non_fiber_key) {
+  if (last_non_fiber_key >= key) {
     return o_pthread_key_delete(key);
-  } else {
-    // TODO: Call all dtors
-    return 0;
   }
+  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+  thread.key_delete(key - last_non_fiber_key - 1);
+  return 0;
 }
 
 int pthread_equal(pthread_t left, pthread_t right) {
