@@ -81,6 +81,7 @@ class Fiber {
         that.yielded_exception = true;
         {
           Unlocker locker;
+          that.entry_fiber = &Coroutine::current();
           that.this_fiber->run();
           assert(!that.started);
         }
@@ -171,7 +172,7 @@ class Fiber {
         void** data = new void*[2];
         data[0] = (void*)&args;
         data[1] = &that;
-        that.this_fiber = &that.entry_fiber->new_fiber((void (*)(void*))RunFiber, data);
+        that.this_fiber = &Coroutine::create_fiber((void (*)(void*))RunFiber, data);
         V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size());
       } else {
         // If the fiber is currently running put the first parameter to `run()` on `yielded`, then
@@ -214,46 +215,49 @@ class Fiber {
       Fiber& that = *(Fiber*)data[1];
       delete[] data;
 
-      Locker locker;
-      HandleScope scope;
+      {
+        Locker locker;
+        HandleScope scope;
 
-      // Set stack guard for this "thread"
-      ResourceConstraints constraints;
-      constraints.set_stack_limit((uint32_t*)that.this_fiber->bottom());
-      SetResourceConstraints(&constraints);
+        // Set stack guard for this "thread"
+        ResourceConstraints constraints;
+        constraints.set_stack_limit((uint32_t*)that.this_fiber->bottom());
+        SetResourceConstraints(&constraints);
 
-      TryCatch try_catch;
-      that.ClearWeak();
-      that.v8_context->Enter();
+        TryCatch try_catch;
+        that.ClearWeak();
+        that.v8_context->Enter();
 
-      if (args->Length()) {
-        Local<Value> argv[1] = { Local<Value>::New((*args)[0]) };
-        that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 1, argv));
-      } else {
-        that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 0, NULL));
+        if (args->Length()) {
+          Local<Value> argv[1] = { Local<Value>::New((*args)[0]) };
+          that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 1, argv));
+        } else {
+          that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 0, NULL));
+        }
+
+        if (try_catch.HasCaught()) {
+          that.yielded.Dispose();
+          that.yielded = Persistent<Value>::New(try_catch.Exception());
+          that.yielded_exception = true;
+        } else {
+          that.yielded_exception = false;
+        }
+
+        // Do not invoke the garbage collector if there's no context on the stack. It will seg fault
+        // otherwise.
+        V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size());
+
+        // Don't make weak until after notifying the garbage collector. Otherwise it may try and
+        // free this very fiber!
+        that.MakeWeak();
+
+        // Now safe to leave the context, this stack is done with JS.
+        that.v8_context->Exit();
       }
-
-      if (try_catch.HasCaught()) {
-        that.yielded.Dispose();
-        that.yielded = Persistent<Value>::New(try_catch.Exception());
-        that.yielded_exception = true;
-      } else {
-        that.yielded_exception = false;
-      }
-
-      // Do not invoke the garbage collector if there's no context on the stack. It will seg fault
-      // otherwise.
-      V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size());
-
-      // Don't make weak until after notifying the garbage collector. Otherwise it may try and
-      // free this very fiber!
-      that.MakeWeak();
-
-      // Now safe to leave the context, this stack is done with JS.
-      that.v8_context->Exit();
 
       // The function returned (instead of yielding).
       that.started = false;
+      that.this_fiber->finish(*that.entry_fiber);
     }
 
     /**

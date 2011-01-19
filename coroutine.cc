@@ -9,14 +9,18 @@
 #include <stack>
 #include <vector>
 
+#include <boost/ptr_container/ptr_vector.hpp>
+
 // TODO: It's clear I'm missing something with respects to ResourceConstraints.set_stack_limit.
 // No matter what I give it, it seems the stack size is always the same. And then if the actual
 // amount of memory allocated for the stack is too small it seg faults. It seems 265k is as low as
 // I can go without fixing the underlying bug.
 #define STACK_SIZE (1024 * 265)
+#define MAX_POOL_SIZE 120
 
 #include <iostream>
 using namespace std;
+using namespace boost;
 
 /**
  * These are all the pthread functions we hook. Some are more complicated to hook than others.
@@ -70,10 +74,11 @@ void thread_trampoline(void** data);
  */
 class Thread {
   private:
+    static vector<pthread_dtor_t> dtors;
     size_t fiber_ids;
     stack<size_t> freed_fiber_ids;
     vector<vector<void*> > fls_data;
-    static vector<pthread_dtor_t> dtors;
+    ptr_vector<Coroutine> fiber_pool;
 
   public:
     pthread_t handle;
@@ -113,14 +118,25 @@ class Thread {
     }
 
     void fiber_did_finish(Coroutine& fiber) {
-      freed_fiber_ids.push(fiber.id);
-      assert(delete_me == NULL);
-      delete_me = &fiber;
-      coroutine_fls_dtor(fiber);
+      if (fiber_pool.size() < MAX_POOL_SIZE) {
+        fiber_pool.push_back(&fiber);
+      } else {
+        freed_fiber_ids.push(fiber.id);
+        coroutine_fls_dtor(fiber);
+        // Can't delete right now because we're currently on this stack!
+        assert(delete_me == NULL);
+        delete_me = &fiber;
+      }
     }
 
-    Coroutine& new_fiber(Coroutine::entry_t& entry, void* arg) {
+    Coroutine& create_fiber(Coroutine::entry_t& entry, void* arg) {
       size_t id;
+      if (!fiber_pool.empty()) {
+        Coroutine& fiber = *fiber_pool.pop_back().release();
+        fiber.reset(entry, arg);
+        return fiber;
+      }
+
       if (!freed_fiber_ids.empty()) {
         id = freed_fiber_ids.top();
         freed_fiber_ids.pop();
@@ -178,9 +194,10 @@ class Loader {
 /**
  * Coroutine class definition
  */
-void Coroutine::trampoline(Coroutine& that, entry_t& entry, void* arg) {
-  entry(arg);
-  that.thread.fiber_did_finish(that);
+void Coroutine::trampoline(Coroutine &that) {
+  while (true) {
+    that.entry(that.arg);
+  }
 }
 
 Coroutine& Coroutine::current() {
@@ -197,32 +214,42 @@ Coroutine::Coroutine(Thread& t, size_t id) : thread(t), id(id) {}
 Coroutine::Coroutine(Thread& t, size_t id, entry_t& entry, void* arg) :
   thread(t),
   id(id),
-  stack(STACK_SIZE) {
+  stack(STACK_SIZE),
+  entry(entry),
+  arg(arg) {
   getcontext(&context);
   context.uc_stack.ss_size = STACK_SIZE;
   context.uc_stack.ss_sp = &stack[0];
-  makecontext(&context, (void(*)(void))trampoline, 3, this, entry, arg);
+  makecontext(&context, (void(*)(void))trampoline, 1, this);
+}
+
+Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
+  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+  return thread.create_fiber(*entry, arg);
+}
+
+void Coroutine::reset(entry_t* entry, void* arg) {
+  this->entry = entry;
+  this->arg = arg;
 }
 
 void Coroutine::run() {
   Coroutine& current = *thread.current_fiber;
-  if (current == this) {
-    throw runtime_error("fiber is already running");
-  }
-  context.uc_link = &current.context;
+  assert(&current != this);
   thread.current_fiber = this;
   swapcontext(&current.context, &context);
   thread.current_fiber = &current;
   if (thread.delete_me) {
-    // TODO: Why does deleting and then reseting cause seg faults? Bad news..
+    assert(thread.delete_me == this);
+    Thread& thread = this->thread;
+    delete thread.delete_me;
     thread.delete_me = NULL;
-    Coroutine* cr = thread.delete_me;
-    delete cr;
   }
 }
 
-Coroutine& Coroutine::new_fiber(entry_t* entry, void* arg) {
-  return thread.new_fiber(*entry, arg);
+void Coroutine::finish(Coroutine& next) {
+  this->thread.fiber_did_finish(*this);
+  swapcontext(&context, &next.context);
 }
 
 void* Coroutine::bottom() const {
@@ -231,14 +258,6 @@ void* Coroutine::bottom() const {
 
 size_t Coroutine::size() const {
   return sizeof(Coroutine) + STACK_SIZE;
-}
-
-bool Coroutine::operator==(const Coroutine& that) const {
-  return this == &that;
-}
-
-bool Coroutine::operator==(const Coroutine* that) const {
-  return this == that;
 }
 
 /**

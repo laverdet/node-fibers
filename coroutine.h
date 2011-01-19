@@ -6,10 +6,12 @@
 #include <ucontext.h>
 #include <ext/pool_allocator.h>
 #include <vector>
+#include <boost/ptr_container/ptr_vector.hpp>
 
 class Coroutine {
   public:
     friend class Thread;
+    friend void boost::checked_delete<const Coroutine>(const Coroutine*);
     typedef void(entry_t)(void*);
 
   private:
@@ -20,8 +22,10 @@ class Coroutine {
     size_t id;
     ucontext_t context;
     std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
+    entry_t* entry;
+    void* arg;
 
-    static void trampoline(Coroutine& that, entry_t& entry, void* arg);
+    static void trampoline(Coroutine& that);
     ~Coroutine() {}
 
     /**
@@ -37,11 +41,21 @@ class Coroutine {
      */
     Coroutine(Thread& t, size_t id, entry_t& entry, void* arg);
 
+    /**
+     * Resets the context of this coroutine from the start. Used to recyle old coroutines.
+     */
+    void reset(entry_t* entry, void* arg);
+
   public:
     /**
      * Returns the currently-running fiber.
      */
     static Coroutine& current();
+
+    /**
+     * Create a new fiber.
+     */
+    static Coroutine& create_fiber(entry_t* entry, void* arg = NULL);
 
     /**
      * Is Coroutine-local storage via pthreads enabled? The Coroutine library should work fine
@@ -58,10 +72,11 @@ class Coroutine {
     void run();
 
     /**
-     * Create a new fiber. This just calls back into Thread because Coroutine is the only public
-     * class in this library.
+     * Finish this coroutine.. This will halt execution of this coroutine and resume execution
+     * of `next`. If you do not call this function, and instead just return from `entry` the
+     * application will exit. This function may or may not actually return.
      */
-    Coroutine& new_fiber(entry_t* entry, void* arg = NULL);
+    void finish(Coroutine& next);
 
     /**
      * Returns address of the lowest usable byte in this Coroutine's stack.
@@ -72,7 +87,4 @@ class Coroutine {
      * Returns the size this Coroutine takes up in the heap.
      */
     size_t size() const;
-
-    bool operator==(const Coroutine& that) const;
-    bool operator==(const Coroutine* that) const;
 };
