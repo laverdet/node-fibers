@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <node/node.h>
 
+#include <vector>
+
 #include <iostream>
 
 #define THROW(x, m) return ThrowException(x(String::New(m)))
@@ -14,6 +16,8 @@ class Fiber {
     static Locker locker; // Node does not use locks or threads, so we need a global lock
     static Persistent<FunctionTemplate> tmpl;
     static Fiber* current;
+    static vector<Fiber*> orphaned_fibers;
+    static Persistent<Value> fatal_stack;
 
     Persistent<Object> handle;
     Persistent<Function> cb;
@@ -23,15 +27,18 @@ class Fiber {
     Coroutine* entry_fiber;
     Coroutine* this_fiber;
     bool started;
+    bool yielding;
     bool zombie;
+    bool resetting;
 
-  public:
     Fiber(Persistent<Object> handle, Persistent<Function> cb, Persistent<Context> v8_context) :
       handle(handle),
       cb(cb),
       v8_context(v8_context),
       started(false),
-      zombie(false) {
+      yielding(false),
+      zombie(false),
+      resetting(false) {
       MakeWeak();
       handle->SetPointerInInternalField(0, this);
     }
@@ -69,39 +76,55 @@ class Fiber {
       assert(that.handle == value);
       assert(value.IsNearDeath());
       assert(current != &that);
+
+      // We'll unwind running fibers later... doing it from the garbage collector is bad news.
       if (that.started) {
-        Locker locker;
-        HandleScope scope;
-        that.zombie = true;
-
-        // Swap context back to `Fiber::Yield()` which will throw an exception to unwind the stack.
-        // Futher calls to yield from this fiber will also throw.
-        that.yielded = Persistent<Value>::New(
-          Exception::Error(String::New("This Fiber is a zombie")));
-        that.yielded_exception = true;
-        {
-          Unlocker locker;
-          that.entry_fiber = &Coroutine::current();
-          that.this_fiber->run();
-          assert(!that.started);
-        }
-
-        that.yielded.Dispose();
-        if (that.yielded_exception) {
-          // TODO: Check for Zombie exception?
-        }
-
-        // It's possible that someone else grabbed a reference to the currently running fiber while
-        // we were unwinding it. In this case they can reuse the fiber, but the stack in progress
-        // is already gone.
-        if (!value.IsNearDeath()) {
-          that.zombie = false;
-          that.MakeWeak();
-          return;
-        }
+        assert(that.yielding);
+        orphaned_fibers.push_back(&that);
+        that.ClearWeak();
+        return;
       }
 
       delete &that;
+    }
+
+    /**
+     * When the v8 garbage collector notifies us about dying fibers instead of unwindng their
+     * stack as soon as possible we put them aside to unwind later. Unwinding from the garbage
+     * collector leads to exponential time garbage collections if there are many orphaned Fibers,
+     * there's also the possibility of running out of stack space. It's generally bad news.
+     *
+     * So instead we have this function to clean up all the fibers after the garbage collection
+     * has finished.
+     */
+    static void DestroyOrphans() {
+      if (orphaned_fibers.empty()) {
+        return;
+      }
+      vector<Fiber*> orphans(orphaned_fibers);
+      orphaned_fibers.clear();
+
+      for (vector<Fiber*>::iterator ii = orphans.begin(); ii != orphans.end(); ++ii) {
+        Fiber& that = **ii;
+        that.UnwindStack();
+
+        if (that.yielded_exception) {
+          // If you throw an exception from a fiber that's being garbage collected there's no way
+          // to bubble that exception up to the application.
+          String::Utf8Value stack(fatal_stack);
+          cerr <<
+            "An exception was thrown from a Fiber which was being garbage collected. This error "
+            "can not be gracefully recovered from. The only acceptable behavior is to terminate "
+            "this application. The exception appears below:\n\n"
+            <<*stack <<"\n";
+          exit(1);
+        } else {
+          fatal_stack.Dispose();
+        }
+
+        that.yielded.Dispose();
+        that.MakeWeak();
+      }
     }
 
     /**
@@ -112,25 +135,6 @@ class Fiber {
       assert(!handle.IsEmpty());
       assert(handle->InternalFieldCount() == 1);
       return *static_cast<Fiber*>(handle->GetPointerFromInternalField(0));
-    }
-
-    /**
-     * Initialize the Fiber library.
-     */
-    static void Init(Handle<Object> target) {
-      HandleScope scope;
-      tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
-      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
-      tmpl->SetClassName(String::NewSymbol("Fiber"));
-
-      Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
-      proto->Set(String::NewSymbol("run"), FunctionTemplate::New(Run));
-      proto->SetAccessor(String::NewSymbol("started"), GetStarted);
-
-      Handle<Function> fn = tmpl->GetFunction();
-      fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
-      target->Set(String::NewSymbol("Fiber"), fn);
-      target->Set(String::NewSymbol("yield"), FunctionTemplate::New(Yield)->GetFunction());
     }
 
     /**
@@ -145,11 +149,11 @@ class Fiber {
       } else if (!args[0]->IsFunction()) {
         THROW(Exception::TypeError, "Fiber expects a function");
       } else if (!args.IsConstructCall()) {
-        Local<Value> argv[1] = { Local<Value>::New(args[0]) };
+        Handle<Value> argv[1] = { args[0] };
         return tmpl->GetFunction()->NewInstance(1, argv);
       }
 
-      Handle<Function> fn = Local<Function>::Cast(args[0]);
+      Handle<Function> fn = Handle<Function>::Cast(args[0]);
       new Fiber(
         Persistent<Object>::New(args.This()),
         Persistent<Function>::New(fn),
@@ -164,7 +168,15 @@ class Fiber {
     static Handle<Value> Run(const Arguments& args) {
       HandleScope scope;
       Fiber& that = Unwrap(args.This());
-      that.entry_fiber = &Coroutine::current();
+
+      // There seems to be no better place to put this check..
+      DestroyOrphans();
+
+      if (&that == current) {
+        THROW(Exception::Error, "This Fiber is already running");
+      } else if (args.Length() > 1) {
+        THROW(Exception::TypeError, "run() excepts 1 or no arguments");
+      }
 
       if (!that.started) {
         // Create a new context with entry point `Fiber::RunFiber()`.
@@ -185,22 +197,117 @@ class Fiber {
           that.yielded = Persistent<Value>::New(Undefined());
         }
       }
+      return that.SwapContext();
+    }
+
+    /**
+     * Throw an exception into a currently yielding fiber.
+     */
+    static Handle<Value> ThrowInto(const Arguments& args) {
+      HandleScope scope;
+      Fiber& that = Unwrap(args.This());
+
+      if (!that.yielding) {
+        THROW(Exception::Error, "This Fiber is not yielding");
+      } else if (args.Length() == 0) {
+        that.yielded = Persistent<Value>::New(Undefined());
+      } else if (args.Length() == 1) {
+        that.yielded = Persistent<Value>::New(args[0]);
+      } else {
+        THROW(Exception::TypeError, "throwInto() expects 1 or no arguments");
+      }
+      that.yielded_exception = true;
+      return that.SwapContext();
+    }
+
+    /**
+     * Unwinds a currently running fiber. If the fiber is not running then this function has no
+     * effect.
+     */
+    static Handle<Value> Reset(const Arguments& args) {
+      HandleScope scope;
+      Fiber& that = Unwrap(args.This());
+
+      if (!that.started) {
+        return Undefined();
+      } else if (!that.yielding) {
+        THROW(Exception::Error, "This Fiber is not yielding");
+      } else if (args.Length()) {
+        THROW(Exception::TypeError, "reset() expects no arguments");
+      }
+
+      that.resetting = true;
+      that.UnwindStack();
+      that.resetting = false;
+      that.MakeWeak();
+
+      Handle<Value> val = that.yielded;
+      that.yielded.Dispose();
+      if (that.yielded_exception) {
+        return ThrowException(val);
+      } else {
+        return val;
+      }
+    }
+
+    /**
+     * Turns the fiber into a zombie and unwinds its whole stack.
+     *
+     * After calling this function you must either destroy this fiber or call MakeWeak() or it will
+     * be leaked.
+     */
+    void UnwindStack() {
+      assert(!zombie);
+      assert(started);
+      assert(yielding);
+      HandleScope scope;
+      zombie = true;
+
+      // Swap context back to `Fiber::Yield()` which will throw an exception to unwind the stack.
+      // Futher calls to yield from this fiber will rethrow the same exception.
+      Local<Value> zombie_exception = Exception::Error(String::New("This Fiber is a zombie"));
+      yielded = Persistent<Value>::New(zombie_exception);
+      yielded_exception = true;
+      {
+        Unlocker locker;
+        entry_fiber = &Coroutine::current();
+        this_fiber->run();
+        assert(!started);
+      }
+      zombie = false;
+
+      // Make sure this is the exception we threw
+      if (yielded_exception && yielded == zombie_exception) {
+        yielded_exception = false;
+        yielded.Dispose();
+        yielded = Persistent<Value>::New(Undefined());
+      }
+    }
+
+    /**
+     * Common logic between `Run()` and `ThrowInto()`. This just switches context to this fiber
+     * and returns the yielded value (or exception)
+     */
+    Handle<Value> SwapContext() {
+
+      entry_fiber = &Coroutine::current();
+      Fiber* last_fiber = current;
+      current = this;
 
       // This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
       // already running.
-      Fiber* last_fiber = current;
-      current = &that;
       {
         Unlocker unlocker;
-        that.this_fiber->run();
+        this_fiber->run();
       }
+
       // At this point the fiber either returned or called `yield()`.
       current = last_fiber;
 
       // Return the yielded value.
-      Handle<Value> val = Local<Value>::New(that.yielded);
-      that.yielded.Dispose();
-      if (that.yielded_exception) {
+      Handle<Value> val = yielded;
+      yielded.Dispose();
+      if (yielded_exception) {
         return ThrowException(val);
       } else {
         return val;
@@ -229,7 +336,7 @@ class Fiber {
         that.v8_context->Enter();
 
         if (args->Length()) {
-          Local<Value> argv[1] = { Local<Value>::New((*args)[0]) };
+          Handle<Value> argv[1] = { (*args)[0] };
           that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 1, argv));
         } else {
           that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 0, NULL));
@@ -239,6 +346,10 @@ class Fiber {
           that.yielded.Dispose();
           that.yielded = Persistent<Value>::New(try_catch.Exception());
           that.yielded_exception = true;
+          if (that.zombie && !that.resetting) {
+            // Throwing an exception from a garbage sweep
+            fatal_stack = Persistent<Value>::New(try_catch.StackTrace());
+          }
         } else {
           that.yielded_exception = false;
         }
@@ -249,7 +360,9 @@ class Fiber {
 
         // Don't make weak until after notifying the garbage collector. Otherwise it may try and
         // free this very fiber!
-        that.MakeWeak();
+        if (!that.zombie) {
+          that.MakeWeak();
+        }
 
         // Now safe to leave the context, this stack is done with JS.
         that.v8_context->Exit();
@@ -267,16 +380,17 @@ class Fiber {
     static Handle<Value> Yield(const Arguments& args) {
       HandleScope scope;
       Fiber& that = *current;
-      if (that.zombie) {
-        THROW(Exception::Error, "This Fiber is a zombie");
-      }
 
-      that.yielded_exception = false;
-      if (args.Length()) {
+      if (that.zombie) {
+        return ThrowException(that.yielded);
+      } else if (args.Length() == 0) {
+        that.yielded = Persistent<Value>::New(Undefined());
+      } else if (args.Length() == 1) {
         that.yielded = Persistent<Value>::New(args[0]);
       } else {
-        that.yielded = Persistent<Value>::New(Undefined());
+        THROW(Exception::TypeError, "yield() expects 1 or no arguments");
       }
+      that.yielded_exception = false;
 
       // While not running this can be garbage collected if no one has a handle.
       that.MakeWeak();
@@ -286,7 +400,9 @@ class Fiber {
       // keep the handle around.
       {
         Unlocker unlocker;
+        that.yielding = true;
         that.entry_fiber->run();
+        that.yielding = false;
       }
       // Now `run()` has been called again.
 
@@ -294,7 +410,7 @@ class Fiber {
       that.ClearWeak();
 
       // `yielded` will contain the first parameter to `run()`
-      Handle<Value> val = Local<Value>::New(that.yielded);
+      Handle<Value> val = that.yielded;
       that.yielded.Dispose();
       if (that.yielded_exception) {
         return ThrowException(val);
@@ -318,11 +434,35 @@ class Fiber {
         return Undefined();
       }
     }
+
+  public:
+    /**
+     * Initialize the Fiber library.
+     */
+    static void Init(Handle<Object> target) {
+      HandleScope scope;
+      tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
+      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
+      tmpl->SetClassName(String::NewSymbol("Fiber"));
+
+      Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
+      proto->Set(String::NewSymbol("reset"), FunctionTemplate::New(Run));
+      proto->Set(String::NewSymbol("run"), FunctionTemplate::New(Run));
+      proto->Set(String::NewSymbol("throwInto"), FunctionTemplate::New(ThrowInto));
+      proto->SetAccessor(String::NewSymbol("started"), GetStarted);
+
+      Handle<Function> fn = tmpl->GetFunction();
+      fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
+      target->Set(String::NewSymbol("Fiber"), fn);
+      target->Set(String::NewSymbol("yield"), FunctionTemplate::New(Yield)->GetFunction());
+    }
 };
 
 Persistent<FunctionTemplate> Fiber::tmpl;
 Locker Fiber::locker;
 Fiber* Fiber::current = NULL;
+vector<Fiber*> Fiber::orphaned_fibers;
+Persistent<Value> Fiber::fatal_stack;
 
 /**
  * If the library wasn't preloaded then we should gracefully fail instead of segfaulting if they

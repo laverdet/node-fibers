@@ -237,14 +237,12 @@ void Coroutine::run() {
   Coroutine& current = *thread.current_fiber;
   assert(&current != this);
   thread.current_fiber = this;
-  swapcontext(&current.context, &context);
-  thread.current_fiber = &current;
   if (thread.delete_me) {
-    assert(thread.delete_me == this);
-    Thread& thread = this->thread;
     delete thread.delete_me;
     thread.delete_me = NULL;
   }
+  swapcontext(&current.context, &context);
+  thread.current_fiber = &current;
 }
 
 void Coroutine::finish(Coroutine& next) {
