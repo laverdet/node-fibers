@@ -12,12 +12,21 @@ using namespace std;
 using namespace v8;
 
 class Fiber {
+#define Unwrap(target, handle) \
+  assert(!handle.IsEmpty()); \
+  if (!handle->IsObject() || handle->GetHiddenValue(fiber_token).IsEmpty()) { \
+    THROW(Exception::TypeError, "Illegal invocation"); \
+  } \
+  assert(handle->InternalFieldCount() == 1); \
+  target = *static_cast<Fiber*>(handle->GetPointerFromInternalField(0));
+
   private:
     static Locker locker; // Node does not use locks or threads, so we need a global lock
     static Persistent<FunctionTemplate> tmpl;
     static Fiber* current;
     static vector<Fiber*> orphaned_fibers;
     static Persistent<Value> fatal_stack;
+    static Persistent<String> fiber_token;
 
     Persistent<Object> handle;
     Persistent<Function> cb;
@@ -128,16 +137,6 @@ class Fiber {
     }
 
     /**
-     * Unwrap a Fiber instance from a `this` pointer.
-     * TODO: Check that `handle` is actually a Fiber or Bad Things may happen.
-     */
-    static Fiber& Unwrap(Handle<Object> handle) {
-      assert(!handle.IsEmpty());
-      assert(handle->InternalFieldCount() == 1);
-      return *static_cast<Fiber*>(handle->GetPointerFromInternalField(0));
-    }
-
-    /**
      * Instantiate a new Fiber object. When a fiber is created it only grabs a handle to the
      * callback; it doesn't create any new contexts until run() is called.
      */
@@ -154,6 +153,7 @@ class Fiber {
       }
 
       Handle<Function> fn = Handle<Function>::Cast(args[0]);
+      args.This()->SetHiddenValue(fiber_token, Boolean::New(true));
       new Fiber(
         Persistent<Object>::New(args.This()),
         Persistent<Function>::New(fn),
@@ -167,7 +167,7 @@ class Fiber {
      */
     static Handle<Value> Run(const Arguments& args) {
       HandleScope scope;
-      Fiber& that = Unwrap(args.This());
+      Unwrap(Fiber& that, args.This());
 
       // There seems to be no better place to put this check..
       DestroyOrphans();
@@ -205,7 +205,7 @@ class Fiber {
      */
     static Handle<Value> ThrowInto(const Arguments& args) {
       HandleScope scope;
-      Fiber& that = Unwrap(args.This());
+      Unwrap(Fiber& that, args.This());
 
       if (!that.yielding) {
         THROW(Exception::Error, "This Fiber is not yielding");
@@ -226,7 +226,7 @@ class Fiber {
      */
     static Handle<Value> Reset(const Arguments& args) {
       HandleScope scope;
-      Fiber& that = Unwrap(args.This());
+      Unwrap(Fiber& that, args.This());
 
       if (!that.started) {
         return Undefined();
@@ -423,7 +423,7 @@ class Fiber {
      * Getters for `started`, and `current`.
      */
     static Handle<Value> GetStarted(Local<String> property, const AccessorInfo& info) {
-      Fiber& that = Unwrap(info.This());
+      Unwrap(Fiber& that, info.This());
       return Boolean::New(that.started);
     }
 
@@ -442,8 +442,10 @@ class Fiber {
     static void Init(Handle<Object> target) {
       HandleScope scope;
       tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
-      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
       tmpl->SetClassName(String::NewSymbol("Fiber"));
+
+      fiber_token = Persistent<String>::New(String::NewSymbol("is_fiber"));
+      tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
       Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
       proto->Set(String::NewSymbol("reset"), FunctionTemplate::New(Run));
@@ -463,6 +465,7 @@ Locker Fiber::locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
+Persistent<String> Fiber::fiber_token;
 
 /**
  * If the library wasn't preloaded then we should gracefully fail instead of segfaulting if they
