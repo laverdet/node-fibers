@@ -185,13 +185,6 @@ class Thread {
 vector<pthread_dtor_t> Thread::dtors;
 
 /**
- * Just a simple library initialization hook.
- */
-class Loader {
-  public: Loader();
-};
-
-/**
  * Coroutine class definition
  */
 void Coroutine::trampoline(Coroutine &that) {
@@ -375,30 +368,32 @@ pthread_t pthread_self() {
  * Initialization of this library. By the time we make it here the heap should be good to go. Also
  * it's possible the TLS functions have been called, so we need to clean up that mess.
  */
-Loader::Loader() {
-  // Grab hooks to the real version of all hooked functions.
-  o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
-  o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
-  o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
-  o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
-  o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
-  o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
-  o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
-  dyn_pthread_key_create();
+class Loader {
+  public: Loader() {
+    // Grab hooks to the real version of all hooked functions.
+    o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
+    o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
+    o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
+    o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
+    o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
+    o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
+    o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
+    dyn_pthread_key_create();
 
-  // Create a real TLS key to store the handle to Thread.
-  o_pthread_key_create(&thread_key, Thread::free);
-  if (thread_key > last_non_fiber_key) {
-    last_non_fiber_key = thread_key;
-  }
-  Thread* thread = new Thread;
-  thread->handle = o_pthread_self();
-  o_pthread_setspecific(thread_key, thread);
+    // Create a real TLS key to store the handle to Thread.
+    o_pthread_key_create(&thread_key, Thread::free);
+    if (thread_key > last_non_fiber_key) {
+      last_non_fiber_key = thread_key;
+    }
+    Thread* thread = new Thread;
+    thread->handle = o_pthread_self();
+    o_pthread_setspecific(thread_key, thread);
 
-  // Put all the data from the fake pthread_setspecific into real TLS
-  initialized = true;
-  for (size_t ii = 0; ii < last_non_fiber_key; ++ii) {
-    pthread_setspecific((pthread_key_t)ii, pthread_early_vals[ii]);
+    // Put all the data from the fake pthread_setspecific into real TLS
+    initialized = true;
+    for (size_t ii = 0; ii < last_non_fiber_key; ++ii) {
+      pthread_setspecific((pthread_key_t)ii, pthread_early_vals[ii]);
+    }
   }
 };
 Loader loader;

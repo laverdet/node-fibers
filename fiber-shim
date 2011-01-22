@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 UNAME=`uname`
 if [[ "$UNAME" == "Linux" ]]; then
   LD_PRELOAD=`pwd`/coroutine.so $@

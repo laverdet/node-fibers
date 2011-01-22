@@ -24,7 +24,7 @@ node-fibers:
 
     $ cat sleep.js 
     require('./node-fibers');
-    var util = require('util');
+    var print = require('util').print;
 
     function sleep(ms) {
       var fiber = Fiber.current;
@@ -35,11 +35,11 @@ node-fibers:
     }
 
     Fiber(function() {
-      util.print('wait... ' + new Date + '\n');
+      print('wait... ' + new Date + '\n');
       sleep(1000);
-      util.print('ok... ' + new Date + '\n');
+      print('ok... ' + new Date + '\n');
     }).run();
-    util.print('back in main\n');
+    print('back in main\n');
 
     $ ./fiber-shim node sleep.js 
     wait... Fri Jan 21 2011 22:42:04 GMT+0900 (JST)
@@ -50,8 +50,8 @@ Yielding execution will resume back in the fiber right where you left off. You
 can also pass values back and forth through yield() and run().
 
     $ cat generator.js
-    var util = require('util');
     require('./node-fibers');
+    var print = require('util').print;
 
     var inc = Fiber(function(start) {
       var total = start;
@@ -61,7 +61,7 @@ can also pass values back and forth through yield() and run().
     });
 
     for (var ii = inc.run(1); ii <= 10; ii = inc.run(1)) {
-      util.print(ii + '\n');
+      print(ii + '\n');
     }
 
     $ ./fiber-shim node generator.js 
@@ -76,6 +76,115 @@ can also pass values back and forth through yield() and run().
     9
     10
 
+Fibers are exception-safe; exceptions will continue travelling through fiber
+boundaries:
+
+    $ cat error.js
+    require('./node-fibers');
+    var print = require('util').print;
+    
+    var fn = Fiber(function() {
+      print('async work here...\n');
+      yield();
+      print('still working...\n');
+      yield();
+      print('just a little bit more...\n');
+      yield();
+      throw new Error('oh crap!');
+    });
+    
+    try {
+      while (true) {
+        fn.run();
+      }
+    } catch(e) {
+      print('safely caught that error!\n');
+      print(e.stack + '\n');
+    }
+    print('done!\n');
+    
+    $ ./fiber-shim node error.js 
+    async work here...
+    still working...
+    just a little bit more...
+    safely caught that error!
+    Error: oh crap!
+        at error.js:11:9
+    done!
+
+You can use fibers to provide synchronous adapters on top of asynchronous
+functions:
+
+    $ cat adapter.js
+    require('./node-fibers');
+    var print = require('util').print;
+
+    // This function runs an asynchronous function from within a fiber as if it
+    // were synchronous.
+    function asyncAsSync(fn /* ... */) {
+      var args = [].slice.call(arguments, 1);
+      var fiber = Fiber.current;
+
+      function cb(err, ret) {
+        if (err) {
+          fiber.throwInto(new Error(err));
+        } else {
+          fiber.run(ret);
+        }
+      }
+
+      // Little-known JS features: a function's `length` property is the number
+      // of arguments it takes. Node convention is that the last parameter to
+      // most asynchronous is a `function callback(err, ret) {}`.
+      args[fn.length - 1] = cb;
+      fn.apply(null, args);
+
+      return yield();
+    }
+
+    var fs = require('fs');
+    var Buffer = require('buffer').Buffer;
+    Fiber(function() {
+      // These are all async functions (fs.open, fs.write, fs.close) but we can
+      // use them as if they're synchronous.
+      print('opening /tmp/hello\n');
+      var file = asyncAsSync(fs.open, '/tmp/hello', 'w');
+      var buffer = new Buffer(5);
+      buffer.write('hello');
+      print('writing to file\n');
+      asyncAsSync(fs.write, file, buffer, 0, buffer.length);
+      print('closing file\n');
+      asyncAsSync(fs.close, file);
+
+      // This is a synchronous function. But note that while this function is
+      // running node is totally blocking. Using `asyncAsSync` leaves node
+      // available to handle more events.
+      var data = fs.readFileSync('/tmp/hello');
+      print('file contents: ' +data +'\n');
+
+      // Errors made simple using the magic of exceptions
+      try {
+        print('deleting /tmp/hello2\n');
+        asyncAsSync(fs.unlink, '/tmp/hello2');
+      } catch(e) {
+        print('caught this exception: ' +e.message +'\n');
+      }
+
+      // Cleanup :)
+      print('deleting /tmp/hello\n');
+      asyncAsSync(fs.unlink, '/tmp/hello');
+    }).run();
+    print('returning control to node event loop\n');
+
+    $ ./fiber-shim node adapter.js 
+    opening /tmp/hello
+    returning control to node event loop
+    writing to file
+    closing file
+    file contents: hello
+    deleting /tmp/hello2
+    caught this exception: Error: ENOENT, No such file or directory '/tmp/hello2'
+    deleting /tmp/hello
 
 Documentation
 -------------
@@ -138,7 +247,7 @@ Fiber's definition looks something like this:
      * reset() will terminate a running Fiber and restore it to its original
      * state, as if it had returned execution.
      *
-     * This is accomplished by causing yield() to throw an execution, and any
+     * This is accomplished by causing yield() to throw an exception, and any
      * futher calls to yield() will also throw an exception. This continues
      * until the fiber has completely unwound and returns.
      *
