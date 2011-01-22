@@ -31,6 +31,7 @@ class Fiber {
     Persistent<Object> handle;
     Persistent<Function> cb;
     Persistent<Context> v8_context;
+    Persistent<Value> zombie_exception;
     Persistent<Value> yielded;
     bool yielded_exception;
     Coroutine* entry_fiber;
@@ -197,7 +198,8 @@ class Fiber {
           that.yielded = Persistent<Value>::New(Undefined());
         }
       }
-      return that.SwapContext();
+      that.SwapContext();
+      return that.ReturnYielded();
     }
 
     /**
@@ -217,7 +219,8 @@ class Fiber {
         THROW(Exception::TypeError, "throwInto() expects 1 or no arguments");
       }
       that.yielded_exception = true;
-      return that.SwapContext();
+      that.SwapContext();
+      return that.ReturnYielded();
     }
 
     /**
@@ -263,17 +266,16 @@ class Fiber {
       HandleScope scope;
       zombie = true;
 
-      // Swap context back to `Fiber::Yield()` which will throw an exception to unwind the stack.
-      // Futher calls to yield from this fiber will rethrow the same exception.
+      // Setup an exception which will be thrown and rethrown from Fiber::Yield()
       Local<Value> zombie_exception = Exception::Error(String::New("This Fiber is a zombie"));
+      this->zombie_exception = Persistent<Value>::New(zombie_exception);
       yielded = Persistent<Value>::New(zombie_exception);
       yielded_exception = true;
-      {
-        Unlocker locker;
-        entry_fiber = &Coroutine::current();
-        this_fiber->run();
-        assert(!started);
-      }
+
+      // Swap context back to Fiber::Yield() which will throw an exception to unwind the stack.
+      // Futher calls to yield from this fiber will rethrow the same exception.
+      SwapContext();
+      assert(!started);
       zombie = false;
 
       // Make sure this is the exception we threw
@@ -282,13 +284,14 @@ class Fiber {
         yielded.Dispose();
         yielded = Persistent<Value>::New(Undefined());
       }
+      this->zombie_exception.Dispose();
     }
 
     /**
-     * Common logic between `Run()` and `ThrowInto()`. This just switches context to this fiber
-     * and returns the yielded value (or exception)
+     * Common logic between Run(), ThrowInto(), and UnwindStack(). This is essentially just a
+     * wrapper around this->fiber->() which also handles all the bookkeeping needed.
      */
-    Handle<Value> SwapContext() {
+    void SwapContext() {
 
       entry_fiber = &Coroutine::current();
       Fiber* last_fiber = current;
@@ -303,8 +306,13 @@ class Fiber {
 
       // At this point the fiber either returned or called `yield()`.
       current = last_fiber;
+    }
 
-      // Return the yielded value.
+    /**
+     * Grabs and resets this fiber's yielded value.
+     */
+    Handle<Value> ReturnYielded() {
+      HandleScope scope;
       Handle<Value> val = yielded;
       yielded.Dispose();
       if (yielded_exception) {
@@ -346,7 +354,7 @@ class Fiber {
           that.yielded.Dispose();
           that.yielded = Persistent<Value>::New(try_catch.Exception());
           that.yielded_exception = true;
-          if (that.zombie && !that.resetting) {
+          if (that.zombie && !that.resetting && that.yielded != that.zombie_exception) {
             // Throwing an exception from a garbage sweep
             fatal_stack = Persistent<Value>::New(try_catch.StackTrace());
           }
@@ -382,7 +390,7 @@ class Fiber {
       Fiber& that = *current;
 
       if (that.zombie) {
-        return ThrowException(that.yielded);
+        return ThrowException(that.zombie_exception);
       } else if (args.Length() == 0) {
         that.yielded = Persistent<Value>::New(Undefined());
       } else if (args.Length() == 1) {
@@ -409,14 +417,8 @@ class Fiber {
       // Don't garbage collect anymore!
       that.ClearWeak();
 
-      // `yielded` will contain the first parameter to `run()`
-      Handle<Value> val = that.yielded;
-      that.yielded.Dispose();
-      if (that.yielded_exception) {
-        return ThrowException(val);
-      } else {
-        return val;
-      }
+      // Return the yielded value
+      return that.ReturnYielded();
     }
 
     /**
@@ -448,7 +450,7 @@ class Fiber {
       tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
       Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
-      proto->Set(String::NewSymbol("reset"), FunctionTemplate::New(Run));
+      proto->Set(String::NewSymbol("reset"), FunctionTemplate::New(Reset));
       proto->Set(String::NewSymbol("run"), FunctionTemplate::New(Run));
       proto->Set(String::NewSymbol("throwInto"), FunctionTemplate::New(ThrowInto));
       proto->SetAccessor(String::NewSymbol("started"), GetStarted);
