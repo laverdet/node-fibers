@@ -21,7 +21,7 @@ class Fiber {
   target = *static_cast<Fiber*>(handle->GetPointerFromInternalField(0));
 
   private:
-    static Locker locker; // Node does not use locks or threads, so we need a global lock
+    static Locker* locker; // Node does not use locks or threads, so we need a global lock
     static Persistent<FunctionTemplate> tmpl;
     static Fiber* current;
     static vector<Fiber*> orphaned_fibers;
@@ -442,6 +442,12 @@ class Fiber {
      * Initialize the Fiber library.
      */
     static void Init(Handle<Object> target) {
+      // Use a locker which won't get destroyed when this library gets unloaded. This is a hack
+      // to prevent v8 from trying to clean up this "thread" while the whole application is
+      // shutting down. TODO: There's likely a better way to accomplish this, but since the
+      // application is going down lost memory isn't the end of the world. But with a regular lock
+      // there's seg faults when node shuts down.
+      Fiber::locker = new Locker;
       HandleScope scope;
       tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
       tmpl->SetClassName(String::NewSymbol("Fiber"));
@@ -463,7 +469,7 @@ class Fiber {
 };
 
 Persistent<FunctionTemplate> Fiber::tmpl;
-Locker Fiber::locker;
+Locker* Fiber::locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
