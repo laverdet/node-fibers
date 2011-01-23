@@ -15,7 +15,7 @@ all: $(COROUTINE_SO) fibers.node
 $(COROUTINE_SO_FULL): $(COROUTINE_SO)
 
 $(COROUTINE_SO): coroutine.cc
-	$(CXX) $(CPPFLAGS) $(CPP_DYFLAGS) -o $@ $^ -lpthread
+	$(CXX) $(CPPFLAGS) $(CPP_DYFLAGS) -o $@ $^ -lpthread -ldl
 
 fibers.node: fibers.cc $(COROUTINE_SO_FULL)
 	$(CXX) $(CPPFLAGS) $(CPP_NODEFLAGS) -o $@ $^
