@@ -475,31 +475,9 @@ vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
 Persistent<String> Fiber::fiber_token;
 
-/**
- * If the library wasn't preloaded then we should gracefully fail instead of segfaulting if they
- * attempt to use a Fiber.
- */
-Handle<Value> FiberNotSupported(const Arguments&) {
-  THROW(Exception::Error,
-"Fiber support was not enabled when you ran node. To enable support for fibers, please run \
-node with the included `fiber-shim` script. For example, instead of running:\n\
-\n\
-  node script.js\n\
-\n\
-You should run:\n\
-\n\
-  ./fiber-shim node script.js\n\
-\n\
-You will not be able to use Fiber without this support enabled.");
-}
-
 extern "C" void init(Handle<Object> target) {
   HandleScope scope;
   Handle<Object> global = Context::GetCurrent()->Global();
-  if (Coroutine::is_local_storage_enabled()) {
-    Fiber::Init(global);
-  } else {
-    global->Set(
-      String::NewSymbol("Fiber"), FunctionTemplate::New(FiberNotSupported)->GetFunction());
-  }
+  assert(Coroutine::is_local_storage_enabled());
+  Fiber::Init(global);
 }

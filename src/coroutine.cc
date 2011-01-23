@@ -288,6 +288,7 @@ int pthread_setspecific(pthread_key_t key, const void* data) {
 }
 
 static pthread_key_create_t& dyn_pthread_key_create() {
+  did_hook_pthreads = true;
   if (o_pthread_key_create == NULL) {
     o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
   }
@@ -359,7 +360,6 @@ int pthread_join(pthread_t thread, void** retval) {
 
 pthread_t pthread_self() {
   assert(initialized);
-  did_hook_pthreads = true;
   Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
   return (pthread_t)thread.current_fiber;
 }

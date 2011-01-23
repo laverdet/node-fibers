@@ -1,29 +1,34 @@
-node-fibers
-===========
+fibers(1) -- Fiber support for v8 and Node
+==========================================
 
-Fiber support for v8 and Node.
+INSTALLING
+----------
 
+To install node-fibers:
 
-Building
---------
-
-To build this software:
-
-    make
+    npm install fibers
 
 Only Linux and OS X environments are supported. Windows support is theoretically
 possible, but not planned.
 
 
-Getting Started
+GETTING STARTED
 ---------------
 
-If you intend to use fibers, be sure to start Node with the included
-`fiber-shim` script. This is a quick example of what you can do with
-node-fibers:
+If you intend to use fibers, be sure to run `node-fibers` instead of `node`.
+After that just `require('fibers');` in any Javascript file and you will have
+fiber support.
+
+
+EXAMPLES
+--------
+
+This is a quick example of how you can write sleep() with fibers. Note that
+while the sleep() call is blocking inside the fiber, node is able to handle
+other events.
 
     $ cat sleep.js 
-    require('./node-fibers');
+    require('fibers');
     var print = require('util').print;
 
     function sleep(ms) {
@@ -41,16 +46,17 @@ node-fibers:
     }).run();
     print('back in main\n');
 
-    $ ./fiber-shim node sleep.js 
+    $ ./node-fibers sleep.js 
     wait... Fri Jan 21 2011 22:42:04 GMT+0900 (JST)
     back in main
     ok... Fri Jan 21 2011 22:42:05 GMT+0900 (JST)
+
 
 Yielding execution will resume back in the fiber right where you left off. You
 can also pass values back and forth through yield() and run().
 
     $ cat generator.js
-    require('./node-fibers');
+    require('fibers');
     var print = require('util').print;
 
     var inc = Fiber(function(start) {
@@ -64,7 +70,7 @@ can also pass values back and forth through yield() and run().
       print(ii + '\n');
     }
 
-    $ ./fiber-shim node generator.js 
+    $ ./node-fibers generator.js 
     1
     2
     3
@@ -76,11 +82,12 @@ can also pass values back and forth through yield() and run().
     9
     10
 
+
 Fibers are exception-safe; exceptions will continue travelling through fiber
 boundaries:
 
     $ cat error.js
-    require('./node-fibers');
+    require('fibers');
     var print = require('util').print;
     
     var fn = Fiber(function() {
@@ -103,7 +110,7 @@ boundaries:
     }
     print('done!\n');
     
-    $ ./fiber-shim node error.js 
+    $ ./node-fibers error.js 
     async work here...
     still working...
     just a little bit more...
@@ -112,11 +119,12 @@ boundaries:
         at error.js:11:9
     done!
 
+
 You can use fibers to provide synchronous adapters on top of asynchronous
 functions:
 
     $ cat adapter.js
-    require('./node-fibers');
+    require('fibers');
     var print = require('util').print;
 
     // This function runs an asynchronous function from within a fiber as if it
@@ -176,7 +184,7 @@ functions:
     }).run();
     print('returning control to node event loop\n');
 
-    $ ./fiber-shim node adapter.js 
+    $ ./node-fibers adapter.js 
     opening /tmp/hello
     returning control to node event loop
     writing to file
@@ -186,7 +194,8 @@ functions:
     caught this exception: Error: ENOENT, No such file or directory '/tmp/hello2'
     deleting /tmp/hello
 
-Documentation
+
+DOCUMENTATION
 -------------
 Fiber's definition looks something like this:
 
@@ -273,7 +282,7 @@ Fiber's definition looks something like this:
     }
 
 
-Garbage Collection
+GARBAGE COLLECTION
 ------------------
 
 If you intend to use "lazy lists", you should be aware that all fibers must
