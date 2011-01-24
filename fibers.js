@@ -1,13 +1,13 @@
-if (process.env.FIBER_SHIM) {
-  require('./src/fibers');
-  return;
-}
+var fs = require('fs');
 
-/**
- * If the library wasn't preloaded then we should gracefully fail instead of segfaulting if they
- * attempt to use a Fiber.
- */
-Fiber = function() {
+if (fs.statSync(process.execPath).mtime >
+    fs.statSync(require.resolve('./src/fibers')).mtime) {
+  throw new Error(
+    '`node` has a newer mtime than `fiber`; it is possible your build is out of date. This ' +
+    'could happen if you upgrade node. Try `npm rebuild fibers` to rebuild. If that doesn\'t ' +
+    'work you could consider running `touch ' + require.resolve('./src/fibers') + '` and maybe ' +
+    'there won\'t be a problem.');
+} else if (!process.env.FIBER_SHIM) {
   throw new Error(
     'Fiber support was not enabled when you ran node. To enable support for fibers, please run ' +
     'node with the included `node-fibers` script. For example, instead of running:\n\n' +
@@ -16,3 +16,5 @@ Fiber = function() {
     '  node-fibers script.js\n\n' +
     'You will not be able to use Fiber without this support enabled.');
 }
+
+require('./src/fibers');
