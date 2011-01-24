@@ -387,6 +387,11 @@ class Fiber {
      */
     static Handle<Value> Yield(const Arguments& args) {
       HandleScope scope;
+
+      if (current == NULL) {
+        THROW(Exception::Error, "yield() called with no fiber running");
+      }
+
       Fiber& that = *current;
 
       if (that.zombie) {
@@ -448,6 +453,7 @@ class Fiber {
       // application is going down lost memory isn't the end of the world. But with a regular lock
       // there's seg faults when node shuts down.
       Fiber::locker = new Locker;
+      current = NULL;
       HandleScope scope;
       tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
       tmpl->SetClassName(String::NewSymbol("Fiber"));
