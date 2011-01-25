@@ -1,6 +1,6 @@
 #include "coroutine.h"
 #include <assert.h>
-#include <node/node.h>
+#include <node/v8.h>
 
 #include <vector>
 
@@ -163,7 +163,36 @@ class Fiber {
     }
 
     /**
-     * Begin or resume the current fiber. If the fiber is not currently running a new context will
+     * Resume the fiber.
+     */
+    static Handle<Value> Resume(const Arguments& args) {
+      HandleScope scope;
+      Unwrap(Fiber& that, args.This());
+
+      // There seems to be no better place to put this check..
+      DestroyOrphans();
+
+      if (&that == current) {
+        THROW(Exception::Error, "This Fiber is already running");
+      } else if (args.Length() > 1) {
+        THROW(Exception::TypeError, "resume() excepts 1 or no arguments");
+      } else if (!that.started) {
+        THROW(Exception::Error, "This Fiber is not started");
+      }
+
+      assert(that.yielding);
+      that.yielded_exception = false;
+      if (args.Length()) {
+        that.yielded = Persistent<Value>::New(args[0]);
+      } else {
+        that.yielded = Persistent<Value>::New(Undefined());
+      }
+      that.SwapContext();
+      return that.ReturnYielded();
+    }
+
+    /**
+     * Begin or resume the fiber. If the fiber is not currently running a new context will
      * be created and the callback will start. Otherwise we switch back into the exist context.
      */
     static Handle<Value> Run(const Arguments& args) {
@@ -463,6 +492,7 @@ class Fiber {
 
       Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
       proto->Set(String::NewSymbol("reset"), FunctionTemplate::New(Reset));
+      proto->Set(String::NewSymbol("resume"), FunctionTemplate::New(Resume));
       proto->Set(String::NewSymbol("run"), FunctionTemplate::New(Run));
       proto->Set(String::NewSymbol("throwInto"), FunctionTemplate::New(ThrowInto));
       proto->SetAccessor(String::NewSymbol("started"), GetStarted);
