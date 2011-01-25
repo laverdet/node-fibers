@@ -9,8 +9,6 @@
 #include <stack>
 #include <vector>
 
-#include <boost/ptr_container/ptr_vector.hpp>
-
 // TODO: It's clear I'm missing something with respects to ResourceConstraints.set_stack_limit.
 // No matter what I give it, it seems the stack size is always the same. And then if the actual
 // amount of memory allocated for the stack is too small it seg faults. It seems 265k is as low as
@@ -20,7 +18,6 @@
 
 #include <iostream>
 using namespace std;
-using namespace boost;
 
 /**
  * These are all the pthread functions we hook. Some are more complicated to hook than others.
@@ -78,7 +75,7 @@ class Thread {
     size_t fiber_ids;
     stack<size_t> freed_fiber_ids;
     vector<vector<void*> > fls_data;
-    ptr_vector<Coroutine> fiber_pool;
+    vector<Coroutine*> fiber_pool;
 
   public:
     pthread_t handle;
@@ -95,6 +92,9 @@ class Thread {
 
     ~Thread() {
       assert(freed_fiber_ids.size() == fiber_ids);
+      for (size_t ii = 0; ii < fiber_pool.size(); ++ii) {
+        delete fiber_pool[ii];
+      }
     }
 
     void coroutine_fls_dtor(Coroutine& fiber) {
@@ -132,7 +132,8 @@ class Thread {
     Coroutine& create_fiber(Coroutine::entry_t& entry, void* arg) {
       size_t id;
       if (!fiber_pool.empty()) {
-        Coroutine& fiber = *fiber_pool.pop_back().release();
+        Coroutine& fiber = *fiber_pool.back();
+        fiber_pool.pop_back();
         fiber.reset(entry, arg);
         return fiber;
       }

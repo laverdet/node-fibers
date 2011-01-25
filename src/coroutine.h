@@ -6,12 +6,10 @@
 #include <ucontext.h>
 #include <ext/pool_allocator.h>
 #include <vector>
-#include <boost/ptr_container/ptr_vector.hpp>
 
 class Coroutine {
   public:
     friend class Thread;
-    friend void boost::checked_delete<const Coroutine>(const Coroutine*);
     typedef void(entry_t)(void*);
 
   private:
