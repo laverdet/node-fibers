@@ -10,6 +10,9 @@ else
   CPPFLAGS += -g -O3 -minline-all-stringops
 endif
 
+ifeq ($(NODE_BITS), )
+  CPPFLAGS += -m32
+endif
 ifeq ($(NODE_BITS), 32)
   CPPFLAGS += -m32
 endif
