@@ -42,7 +42,10 @@ static pthread_key_create_t& dyn_pthread_key_create();
  * the original implementation but that doesn't work because dlsym() tries to get a lock which ends
  * up calling pthread_getspecific and pthread_setspecific. So have to implement our own versions of
  * these functions assuming one thread only and then as soon as we can, put all that saved data into
- * real TLS.
+ * a better structure.
+ *
+ * If there are keys reserved that are lower than `thread_key` we always pass those through to the
+ * underlying implementation.
  *
  * This code assumes the underlying pthread library uses increasing TLS keys, while remaining
  * under a constant number of them. These are both not safe assumptions since pthread_t is
@@ -50,14 +53,12 @@ static pthread_key_create_t& dyn_pthread_key_create();
  */
 static const size_t MAX_EARLY_KEYS = 500;
 static const void* pthread_early_vals[500] = { NULL };
-static pthread_key_t last_non_fiber_key = NULL;
-
-/**
- * General bookkeeping for this library.
- */
-static bool initialized = false;
+static pthread_dtor_t pthread_early_dtors[500] = { NULL };
+static pthread_key_t prev_synthetic_key = NULL;
 static bool did_hook_pthreads = false;
+static bool did_reserve_key = false;
 static pthread_key_t thread_key;
+static bool initialized = false;
 
 /**
  * Boing
@@ -190,7 +191,7 @@ vector<pthread_dtor_t> Thread::dtors;
  */
 void Coroutine::trampoline(Coroutine &that) {
   while (true) {
-    that.entry(that.arg);
+    that.entry(const_cast<void*>(that.arg));
   }
 }
 
@@ -232,6 +233,7 @@ void Coroutine::run() {
   assert(&current != this);
   thread.current_fiber = this;
   if (thread.delete_me) {
+    assert(this != thread.delete_me);
     delete thread.delete_me;
     thread.delete_me = NULL;
   }
@@ -261,29 +263,27 @@ size_t Coroutine::size() const {
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
   if (initialized) {
-    if (last_non_fiber_key >= key) {
-      // If this key was reserved before the library loaded then go to the original TLS. This should
-      // generally be very low-level stuff.
+    if (thread_key >= key) {
       return o_pthread_getspecific(key);
     }
     Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-    return thread.get_specific(key - last_non_fiber_key - 1);
+    return thread.get_specific(key - thread_key - 1);
   } else {
     // We can't invoke the original function because dlsym tries to call pthread_getspecific
-    return const_cast<void*>(pthread_early_vals[key]);
+    return const_cast<void*>(pthread_early_vals[key - thread_key - 1]);
   }
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
   if (initialized) {
-    if (last_non_fiber_key >= key) {
+    if (thread_key >= key) {
       return o_pthread_setspecific(key, data);
     }
     Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-    thread.set_specific(key - last_non_fiber_key - 1, data);
+    thread.set_specific(key - thread_key - 1, data);
     return 0;
   } else {
-    pthread_early_vals[key] = data;
+    pthread_early_vals[key - thread_key - 1] = data;
     return 0;
   }
 }
@@ -300,15 +300,18 @@ int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
   if (initialized) {
     Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
     thread.key_create(key, dtor);
-    *key += last_non_fiber_key + 1;
+    *key += thread_key + 1;
     return 0;
   } else {
-    int ret = dyn_pthread_key_create()(key, dtor);
-    assert(*key < MAX_EARLY_KEYS);
-    if (*key > last_non_fiber_key) {
-      last_non_fiber_key = *key;
+    if (!did_reserve_key) {
+      did_reserve_key = true;
+      dyn_pthread_key_create()(&thread_key, Thread::free);
+      prev_synthetic_key = thread_key;
     }
-    return ret;
+    *key = ++prev_synthetic_key;
+    pthread_early_dtors[*key] = dtor;
+    assert(prev_synthetic_key < MAX_EARLY_KEYS);
+    return 0;
   }
 }
 
@@ -341,11 +344,11 @@ int pthread_create(pthread_t* handle, const pthread_attr_t* attr, void* (*entry)
 
 int pthread_key_delete(pthread_key_t key) {
   assert(initialized);
-  if (last_non_fiber_key >= key) {
+  if (thread_key >= key) {
     return o_pthread_key_delete(key);
   }
   Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  thread.key_delete(key - last_non_fiber_key - 1);
+  thread.key_delete(key - thread_key - 1);
   return 0;
 }
 
@@ -382,18 +385,22 @@ class Loader {
     dyn_pthread_key_create();
 
     // Create a real TLS key to store the handle to Thread.
-    o_pthread_key_create(&thread_key, Thread::free);
-    if (thread_key > last_non_fiber_key) {
-      last_non_fiber_key = thread_key;
+    if (!did_reserve_key) {
+      did_reserve_key = true;
+      o_pthread_key_create(&thread_key, Thread::free);
+      prev_synthetic_key = thread_key;
     }
     Thread* thread = new Thread;
     thread->handle = o_pthread_self();
     o_pthread_setspecific(thread_key, thread);
 
-    // Put all the data from the fake pthread_setspecific into real TLS
+    // Put all the data from the fake pthread_setspecific into FLS
     initialized = true;
-    for (size_t ii = 0; ii < last_non_fiber_key; ++ii) {
-      pthread_setspecific((pthread_key_t)ii, pthread_early_vals[ii]);
+    for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
+      pthread_key_t tmp;
+      thread->key_create(&tmp, pthread_early_dtors[ii]);
+      assert(tmp == ii - thread_key - 1);
+      thread->set_specific(tmp, pthread_early_vals[ii]);
     }
 
     // Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
