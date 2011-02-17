@@ -23,7 +23,7 @@ class Fiber {
   private:
     static Locker* locker; // Node does not use locks or threads, so we need a global lock
     static Persistent<FunctionTemplate> tmpl;
-    static Fiber* current;
+    static volatile Fiber* current;
     static vector<Fiber*> orphaned_fibers;
     static Persistent<Value> fatal_stack;
     static Persistent<String> fiber_token;
@@ -33,13 +33,13 @@ class Fiber {
     Persistent<Context> v8_context;
     Persistent<Value> zombie_exception;
     Persistent<Value> yielded;
-    bool yielded_exception;
-    Coroutine* entry_fiber;
+    volatile bool yielded_exception;
+    volatile Coroutine* entry_fiber;
     Coroutine* this_fiber;
-    bool started;
-    bool yielding;
-    bool zombie;
-    bool resetting;
+    volatile bool started;
+    volatile bool yielding;
+    volatile bool zombie;
+    volatile bool resetting;
 
     Fiber(Persistent<Object> handle, Persistent<Function> cb, Persistent<Context> v8_context) :
       handle(handle),
@@ -294,7 +294,7 @@ class Fiber {
     void SwapContext() {
 
       entry_fiber = &Coroutine::current();
-      Fiber* last_fiber = current;
+      Fiber* last_fiber = const_cast<Fiber*>(current);
       current = this;
 
       // This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
@@ -378,7 +378,7 @@ class Fiber {
 
       // The function returned (instead of yielding).
       that.started = false;
-      that.this_fiber->finish(*that.entry_fiber);
+      that.this_fiber->finish(*const_cast<Coroutine*>(that.entry_fiber));
     }
 
     /**
@@ -392,7 +392,7 @@ class Fiber {
         THROW(Exception::Error, "yield() called with no fiber running");
       }
 
-      Fiber& that = *current;
+      Fiber& that = *const_cast<Fiber*>(current);
 
       if (that.zombie) {
         return ThrowException(that.zombie_exception);
@@ -436,7 +436,7 @@ class Fiber {
 
     static Handle<Value> GetCurrent(Local<String> property, const AccessorInfo& info) {
       if (current) {
-        return current->handle;
+        return const_cast<Fiber*>(current)->handle;
       } else {
         return Undefined();
       }
@@ -476,7 +476,7 @@ class Fiber {
 
 Persistent<FunctionTemplate> Fiber::tmpl;
 Locker* Fiber::locker;
-Fiber* Fiber::current = NULL;
+volatile Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
 Persistent<String> Fiber::fiber_token;

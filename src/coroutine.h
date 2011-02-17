@@ -20,8 +20,8 @@ class Coroutine {
     size_t id;
     ucontext_t context;
     std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
-    entry_t* entry;
-    void* arg;
+    volatile entry_t* entry;
+    volatile void* arg;
 
     static void trampoline(Coroutine& that);
     ~Coroutine() {}
@@ -67,7 +67,7 @@ class Coroutine {
      * Start or resume execution in this fiber. Note there is no explicit yield() function,
      * you must manually run another fiber.
      */
-    void run();
+    void run() volatile;
 
     /**
      * Finish this coroutine.. This will halt execution of this coroutine and resume execution

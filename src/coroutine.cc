@@ -80,8 +80,8 @@ class Thread {
 
   public:
     pthread_t handle;
-    Coroutine* current_fiber;
-    Coroutine* delete_me;
+    volatile Coroutine* current_fiber;
+    volatile Coroutine* delete_me;
 
     static void free(void* that) {
       delete static_cast<Thread*>(that);
@@ -197,7 +197,7 @@ void Coroutine::trampoline(Coroutine &that) {
 
 Coroutine& Coroutine::current() {
   Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  return *thread.current_fiber;
+  return *const_cast<Coroutine*>(thread.current_fiber);
 }
 
 const bool Coroutine::is_local_storage_enabled() {
@@ -228,8 +228,8 @@ void Coroutine::reset(entry_t* entry, void* arg) {
   this->arg = arg;
 }
 
-void Coroutine::run() {
-  Coroutine& current = *thread.current_fiber;
+void Coroutine::run() volatile {
+  Coroutine& current = *const_cast<Coroutine*>(thread.current_fiber);
   assert(&current != this);
   thread.current_fiber = this;
   if (thread.delete_me) {
@@ -237,7 +237,7 @@ void Coroutine::run() {
     delete thread.delete_me;
     thread.delete_me = NULL;
   }
-  swapcontext(&current.context, &context);
+  swapcontext(&current.context, const_cast<ucontext_t*>(&context));
   thread.current_fiber = &current;
 }
 
