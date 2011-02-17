@@ -173,7 +173,7 @@ class Fiber {
       // There seems to be no better place to put this check..
       DestroyOrphans();
 
-      if (&that == current) {
+      if (that.started && !that.yielding) {
         THROW(Exception::Error, "This Fiber is already running");
       } else if (args.Length() > 1) {
         THROW(Exception::TypeError, "run() excepts 1 or no arguments");

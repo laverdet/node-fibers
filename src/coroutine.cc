@@ -145,7 +145,7 @@ class Thread {
         fls_data.resize(fls_data.size() + 1);
         id = fiber_ids++;
       }
-      return *new Coroutine(*this, id, *entry, arg);
+      return *new Coroutine(*this, id, entry, arg);
     }
 
     void* get_specific(pthread_key_t key) {
@@ -356,7 +356,7 @@ int pthread_equal(pthread_t left, pthread_t right) {
 int pthread_join(pthread_t thread, void** retval) {
   assert(initialized);
   // pthread_join should return EDEADLK if you try to join with yourself..
-  return pthread_join(reinterpret_cast<Thread&>(thread).handle, retval);
+  return pthread_join(reinterpret_cast<Thread*>(thread)->handle, retval);
 }
 
 pthread_t pthread_self() {
