@@ -231,18 +231,19 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 void Coroutine::run() volatile {
 	Coroutine& current = *const_cast<Coroutine*>(thread.current_fiber);
 	assert(&current != this);
-	thread.current_fiber = this;
 	if (thread.delete_me) {
 		assert(this != thread.delete_me);
+		assert(&current != thread.delete_me);
 		delete thread.delete_me;
 		thread.delete_me = NULL;
 	}
+	thread.current_fiber = this;
 	swapcontext(&current.context, const_cast<ucontext_t*>(&context));
-	thread.current_fiber = &current;
 }
 
 void Coroutine::finish(Coroutine& next) {
 	this->thread.fiber_did_finish(*this);
+	thread.current_fiber = &next;
 	swapcontext(&context, &next.context);
 }
 
