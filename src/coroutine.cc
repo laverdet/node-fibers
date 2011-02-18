@@ -323,9 +323,8 @@ int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
 void thread_trampoline(void** args_vector) {
 	void* (*entry)(void*) = (void*(*)(void*))args_vector[0];
 	void* arg = args_vector[1];
-	Thread& thread = *static_cast<Thread*>(args_vector[1]);
+	Thread& thread = *static_cast<Thread*>(args_vector[2]);
 	delete[] args_vector;
-	thread.handle = o_pthread_self();
 	o_pthread_setspecific(thread_key, &thread);
 	entry(arg);
 }
