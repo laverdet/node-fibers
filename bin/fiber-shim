@@ -2,23 +2,23 @@
 
 # assume fibers.node and coroutine.so are in same directory
 if [[ -e `dirname "$0"`/../src/fibers.node ]]; then
-  FIBERS_ROOT=`dirname "$0"`/../src
+	FIBERS_ROOT=`dirname "$0"`/../src
 else
-  FIBERS_ROOT=`node --vars | egrep ^NODE_PREFIX: | cut -c14-`/lib/node/.npm/fibers/active/package/src
-  if [[ ! -e "$FIBERS_ROOT/fibers.node" ]]; then
-    echo "Could not find the coroutine shim!" 1>&2
-    exit 1
-  fi
+	FIBERS_ROOT=`node --vars | egrep ^NODE_PREFIX: | cut -c14-`/lib/node/.npm/fibers/active/package/src
+	if [[ ! -e "$FIBERS_ROOT/fibers.node" ]]; then
+		echo "Could not find the coroutine shim!" 1>&2
+		exit 1
+	fi
 fi
 UNAME=`uname`
 if [[ "$UNAME" == "Linux" ]]; then
-  FIBER_SHIM=1 \
-  LD_PRELOAD="$FIBERS_ROOT/coroutine.so" \
-  "$@"
+	FIBER_SHIM=1 \
+	LD_PRELOAD="$FIBERS_ROOT/coroutine.so" \
+	"$@"
 elif [[ "$UNAME" == "Darwin" ]]; then
-  FIBER_SHIM=1 \
-  DYLD_INSERT_LIBRARIES="$FIBERS_ROOT/coroutine.dylib" \
-  DYLD_FORCE_FLAT_NAMESPACE=1 \
-  DYLD_LIBRARY_PATH="$FIBERS_ROOT" \
-  "$@"
+	FIBER_SHIM=1 \
+	DYLD_INSERT_LIBRARIES="$FIBERS_ROOT/coroutine.dylib" \
+	DYLD_FORCE_FLAT_NAMESPACE=1 \
+	DYLD_LIBRARY_PATH="$FIBERS_ROOT" \
+	"$@"
 fi

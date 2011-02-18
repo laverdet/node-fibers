@@ -71,118 +71,118 @@ void thread_trampoline(void** data);
  * Thread object in TLS, and then it emulates TLS on top of fibers.
  */
 class Thread {
-  private:
-    static vector<pthread_dtor_t> dtors;
-    size_t fiber_ids;
-    stack<size_t> freed_fiber_ids;
-    vector<vector<void*> > fls_data;
-    vector<Coroutine*> fiber_pool;
+	private:
+		static vector<pthread_dtor_t> dtors;
+		size_t fiber_ids;
+		stack<size_t> freed_fiber_ids;
+		vector<vector<void*> > fls_data;
+		vector<Coroutine*> fiber_pool;
 
-  public:
-    pthread_t handle;
-    volatile Coroutine* current_fiber;
-    volatile Coroutine* delete_me;
+	public:
+		pthread_t handle;
+		volatile Coroutine* current_fiber;
+		volatile Coroutine* delete_me;
 
-    static void free(void* that) {
-      delete static_cast<Thread*>(that);
-    }
+		static void free(void* that) {
+			delete static_cast<Thread*>(that);
+		}
 
-    Thread() : fiber_ids(1), fls_data(1), handle(NULL), delete_me(NULL) {
-      current_fiber = new Coroutine(*this, 0);
-    }
+		Thread() : fiber_ids(1), fls_data(1), handle(NULL), delete_me(NULL) {
+			current_fiber = new Coroutine(*this, 0);
+		}
 
-    ~Thread() {
-      assert(freed_fiber_ids.size() == fiber_ids);
-      for (size_t ii = 0; ii < fiber_pool.size(); ++ii) {
-        delete fiber_pool[ii];
-      }
-    }
+		~Thread() {
+			assert(freed_fiber_ids.size() == fiber_ids);
+			for (size_t ii = 0; ii < fiber_pool.size(); ++ii) {
+				delete fiber_pool[ii];
+			}
+		}
 
-    void coroutine_fls_dtor(Coroutine& fiber) {
-      bool did_delete;
-      vector<void*>& fiber_data = fls_data[fiber.id];
-      do {
-        did_delete = false;
-        for (size_t ii = 0; ii < fiber_data.size(); ++ii) {
-          if (fiber_data[ii]) {
-            if (dtors[ii]) {
-              void* tmp = fiber_data[ii];
-              fiber_data[ii] = NULL;
-              dtors[ii](tmp);
-              did_delete = true;
-            } else {
-              fiber_data[ii] = NULL;
-            }
-          }
-        }
-      } while (did_delete);
-    }
+		void coroutine_fls_dtor(Coroutine& fiber) {
+			bool did_delete;
+			vector<void*>& fiber_data = fls_data[fiber.id];
+			do {
+				did_delete = false;
+				for (size_t ii = 0; ii < fiber_data.size(); ++ii) {
+					if (fiber_data[ii]) {
+						if (dtors[ii]) {
+							void* tmp = fiber_data[ii];
+							fiber_data[ii] = NULL;
+							dtors[ii](tmp);
+							did_delete = true;
+						} else {
+							fiber_data[ii] = NULL;
+						}
+					}
+				}
+			} while (did_delete);
+		}
 
-    void fiber_did_finish(Coroutine& fiber) {
-      if (fiber_pool.size() < MAX_POOL_SIZE) {
-        fiber_pool.push_back(&fiber);
-      } else {
-        freed_fiber_ids.push(fiber.id);
-        coroutine_fls_dtor(fiber);
-        // Can't delete right now because we're currently on this stack!
-        assert(delete_me == NULL);
-        delete_me = &fiber;
-      }
-    }
+		void fiber_did_finish(Coroutine& fiber) {
+			if (fiber_pool.size() < MAX_POOL_SIZE) {
+				fiber_pool.push_back(&fiber);
+			} else {
+				freed_fiber_ids.push(fiber.id);
+				coroutine_fls_dtor(fiber);
+				// Can't delete right now because we're currently on this stack!
+				assert(delete_me == NULL);
+				delete_me = &fiber;
+			}
+		}
 
-    Coroutine& create_fiber(Coroutine::entry_t& entry, void* arg) {
-      size_t id;
-      if (!fiber_pool.empty()) {
-        Coroutine& fiber = *fiber_pool.back();
-        fiber_pool.pop_back();
-        fiber.reset(entry, arg);
-        return fiber;
-      }
+		Coroutine& create_fiber(Coroutine::entry_t& entry, void* arg) {
+			size_t id;
+			if (!fiber_pool.empty()) {
+				Coroutine& fiber = *fiber_pool.back();
+				fiber_pool.pop_back();
+				fiber.reset(entry, arg);
+				return fiber;
+			}
 
-      if (!freed_fiber_ids.empty()) {
-        id = freed_fiber_ids.top();
-        freed_fiber_ids.pop();
-      } else {
-        fls_data.resize(fls_data.size() + 1);
-        id = fiber_ids++;
-      }
-      return *new Coroutine(*this, id, entry, arg);
-    }
+			if (!freed_fiber_ids.empty()) {
+				id = freed_fiber_ids.top();
+				freed_fiber_ids.pop();
+			} else {
+				fls_data.resize(fls_data.size() + 1);
+				id = fiber_ids++;
+			}
+			return *new Coroutine(*this, id, entry, arg);
+		}
 
-    void* get_specific(pthread_key_t key) {
-      if (fls_data[current_fiber->id].size() <= key) {
-        return NULL;
-      }
-      return fls_data[current_fiber->id][key];
-    }
+		void* get_specific(pthread_key_t key) {
+			if (fls_data[current_fiber->id].size() <= key) {
+				return NULL;
+			}
+			return fls_data[current_fiber->id][key];
+		}
 
-    void set_specific(pthread_key_t key, const void* data) {
-      if (fls_data[current_fiber->id].size() <= key) {
-        fls_data[current_fiber->id].resize(key + 1);
-      }
-      fls_data[current_fiber->id][key] = (void*)data;
-    }
+		void set_specific(pthread_key_t key, const void* data) {
+			if (fls_data[current_fiber->id].size() <= key) {
+				fls_data[current_fiber->id].resize(key + 1);
+			}
+			fls_data[current_fiber->id][key] = (void*)data;
+		}
 
-    void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
-      dtors.push_back(dtor);
-      *key = dtors.size() - 1; // TODO: This is NOT thread-safe! =O
-    }
+		void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
+			dtors.push_back(dtor);
+			*key = dtors.size() - 1; // TODO: This is NOT thread-safe! =O
+		}
 
-    void key_delete(pthread_key_t key) {
-      if (!dtors[key]) {
-        return;
-      }
-      for (size_t ii = 0; ii < fls_data.size(); ++ii) {
-        if (fls_data[ii].size() <= key) {
-          continue;
-        }
-        while (fls_data[ii][key]) {
-          void* tmp = fls_data[ii][key];
-          fls_data[ii][key] = NULL;
-          dtors[key](tmp);
-        }
-      }
-    }
+		void key_delete(pthread_key_t key) {
+			if (!dtors[key]) {
+				return;
+			}
+			for (size_t ii = 0; ii < fls_data.size(); ++ii) {
+				if (fls_data[ii].size() <= key) {
+					continue;
+				}
+				while (fls_data[ii][key]) {
+					void* tmp = fls_data[ii][key];
+					fls_data[ii][key] = NULL;
+					dtors[key](tmp);
+				}
+			}
+		}
 };
 vector<pthread_dtor_t> Thread::dtors;
 
@@ -190,68 +190,68 @@ vector<pthread_dtor_t> Thread::dtors;
  * Coroutine class definition
  */
 void Coroutine::trampoline(Coroutine &that) {
-  while (true) {
-    that.entry(const_cast<void*>(that.arg));
-  }
+	while (true) {
+		that.entry(const_cast<void*>(that.arg));
+	}
 }
 
 Coroutine& Coroutine::current() {
-  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  return *const_cast<Coroutine*>(thread.current_fiber);
+	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+	return *const_cast<Coroutine*>(thread.current_fiber);
 }
 
 const bool Coroutine::is_local_storage_enabled() {
-  return did_hook_pthreads;
+	return did_hook_pthreads;
 }
 
 Coroutine::Coroutine(Thread& t, size_t id) : thread(t), id(id) {}
 
 Coroutine::Coroutine(Thread& t, size_t id, entry_t& entry, void* arg) :
-  thread(t),
-  id(id),
-  stack(STACK_SIZE),
-  entry(entry),
-  arg(arg) {
-  getcontext(&context);
-  context.uc_stack.ss_size = STACK_SIZE;
-  context.uc_stack.ss_sp = &stack[0];
-  makecontext(&context, (void(*)(void))trampoline, 1, this);
+	thread(t),
+	id(id),
+	stack(STACK_SIZE),
+	entry(entry),
+	arg(arg) {
+	getcontext(&context);
+	context.uc_stack.ss_size = STACK_SIZE;
+	context.uc_stack.ss_sp = &stack[0];
+	makecontext(&context, (void(*)(void))trampoline, 1, this);
 }
 
 Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
-  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  return thread.create_fiber(*entry, arg);
+	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+	return thread.create_fiber(*entry, arg);
 }
 
 void Coroutine::reset(entry_t* entry, void* arg) {
-  this->entry = entry;
-  this->arg = arg;
+	this->entry = entry;
+	this->arg = arg;
 }
 
 void Coroutine::run() volatile {
-  Coroutine& current = *const_cast<Coroutine*>(thread.current_fiber);
-  assert(&current != this);
-  thread.current_fiber = this;
-  if (thread.delete_me) {
-    assert(this != thread.delete_me);
-    delete thread.delete_me;
-    thread.delete_me = NULL;
-  }
-  swapcontext(&current.context, const_cast<ucontext_t*>(&context));
-  thread.current_fiber = &current;
+	Coroutine& current = *const_cast<Coroutine*>(thread.current_fiber);
+	assert(&current != this);
+	thread.current_fiber = this;
+	if (thread.delete_me) {
+		assert(this != thread.delete_me);
+		delete thread.delete_me;
+		thread.delete_me = NULL;
+	}
+	swapcontext(&current.context, const_cast<ucontext_t*>(&context));
+	thread.current_fiber = &current;
 }
 
 void Coroutine::finish(Coroutine& next) {
-  this->thread.fiber_did_finish(*this);
-  swapcontext(&context, &next.context);
+	this->thread.fiber_did_finish(*this);
+	swapcontext(&context, &next.context);
 }
 
 void* Coroutine::bottom() const {
-  return (char*)&stack[0] - STACK_SIZE;
+	return (char*)&stack[0] - STACK_SIZE;
 }
 
 size_t Coroutine::size() const {
-  return sizeof(Coroutine) + STACK_SIZE;
+	return sizeof(Coroutine) + STACK_SIZE;
 }
 
 /**
@@ -262,57 +262,57 @@ size_t Coroutine::size() const {
 // Note well that in the `!initialized` case there is no heap. Calls to malloc, etc will crash your
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
-  if (initialized) {
-    if (thread_key >= key) {
-      return o_pthread_getspecific(key);
-    }
-    Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-    return thread.get_specific(key - thread_key - 1);
-  } else {
-    // We can't invoke the original function because dlsym tries to call pthread_getspecific
-    return const_cast<void*>(pthread_early_vals[key - thread_key - 1]);
-  }
+	if (initialized) {
+		if (thread_key >= key) {
+			return o_pthread_getspecific(key);
+		}
+		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+		return thread.get_specific(key - thread_key - 1);
+	} else {
+		// We can't invoke the original function because dlsym tries to call pthread_getspecific
+		return const_cast<void*>(pthread_early_vals[key - thread_key - 1]);
+	}
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
-  if (initialized) {
-    if (thread_key >= key) {
-      return o_pthread_setspecific(key, data);
-    }
-    Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-    thread.set_specific(key - thread_key - 1, data);
-    return 0;
-  } else {
-    pthread_early_vals[key - thread_key - 1] = data;
-    return 0;
-  }
+	if (initialized) {
+		if (thread_key >= key) {
+			return o_pthread_setspecific(key, data);
+		}
+		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+		thread.set_specific(key - thread_key - 1, data);
+		return 0;
+	} else {
+		pthread_early_vals[key - thread_key - 1] = data;
+		return 0;
+	}
 }
 
 static pthread_key_create_t& dyn_pthread_key_create() {
-  did_hook_pthreads = true;
-  if (o_pthread_key_create == NULL) {
-    o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
-  }
-  return *o_pthread_key_create;
+	did_hook_pthreads = true;
+	if (o_pthread_key_create == NULL) {
+		o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
+	}
+	return *o_pthread_key_create;
 }
 
 int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
-  if (initialized) {
-    Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-    thread.key_create(key, dtor);
-    *key += thread_key + 1;
-    return 0;
-  } else {
-    if (!did_reserve_key) {
-      did_reserve_key = true;
-      dyn_pthread_key_create()(&thread_key, Thread::free);
-      prev_synthetic_key = thread_key;
-    }
-    *key = ++prev_synthetic_key;
-    pthread_early_dtors[*key] = dtor;
-    assert(prev_synthetic_key < MAX_EARLY_KEYS);
-    return 0;
-  }
+	if (initialized) {
+		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+		thread.key_create(key, dtor);
+		*key += thread_key + 1;
+		return 0;
+	} else {
+		if (!did_reserve_key) {
+			did_reserve_key = true;
+			dyn_pthread_key_create()(&thread_key, Thread::free);
+			prev_synthetic_key = thread_key;
+		}
+		*key = ++prev_synthetic_key;
+		pthread_early_dtors[*key] = dtor;
+		assert(prev_synthetic_key < MAX_EARLY_KEYS);
+		return 0;
+	}
 }
 
 /**
@@ -321,51 +321,51 @@ int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
 
 // Entry point for pthread_create. We need this to record the Thread in real TLS.
 void thread_trampoline(void** args_vector) {
-  void* (*entry)(void*) = (void*(*)(void*))args_vector[0];
-  void* arg = args_vector[1];
-  Thread& thread = *static_cast<Thread*>(args_vector[1]);
-  delete[] args_vector;
-  thread.handle = o_pthread_self();
-  o_pthread_setspecific(thread_key, &thread);
-  entry(arg);
+	void* (*entry)(void*) = (void*(*)(void*))args_vector[0];
+	void* arg = args_vector[1];
+	Thread& thread = *static_cast<Thread*>(args_vector[1]);
+	delete[] args_vector;
+	thread.handle = o_pthread_self();
+	o_pthread_setspecific(thread_key, &thread);
+	entry(arg);
 }
 
 int pthread_create(pthread_t* handle, const pthread_attr_t* attr, void* (*entry)(void*), void* arg) {
-  assert(initialized);
-  void** args_vector = new void*[3];
-  args_vector[0] = (void*)entry;
-  args_vector[1] = arg;
-  Thread* thread = new Thread;
-  args_vector[2] = thread;
-  *handle = (pthread_t)thread;
-  return o_pthread_create(
-    &thread->handle, attr, (void* (*)(void*))thread_trampoline, (void*)args_vector);
+	assert(initialized);
+	void** args_vector = new void*[3];
+	args_vector[0] = (void*)entry;
+	args_vector[1] = arg;
+	Thread* thread = new Thread;
+	args_vector[2] = thread;
+	*handle = (pthread_t)thread;
+	return o_pthread_create(
+		&thread->handle, attr, (void* (*)(void*))thread_trampoline, (void*)args_vector);
 }
 
 int pthread_key_delete(pthread_key_t key) {
-  assert(initialized);
-  if (thread_key >= key) {
-    return o_pthread_key_delete(key);
-  }
-  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  thread.key_delete(key - thread_key - 1);
-  return 0;
+	assert(initialized);
+	if (thread_key >= key) {
+		return o_pthread_key_delete(key);
+	}
+	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+	thread.key_delete(key - thread_key - 1);
+	return 0;
 }
 
 int pthread_equal(pthread_t left, pthread_t right) {
-  return left == right;
+	return left == right;
 }
 
 int pthread_join(pthread_t thread, void** retval) {
-  assert(initialized);
-  // pthread_join should return EDEADLK if you try to join with yourself..
-  return pthread_join(reinterpret_cast<Thread*>(thread)->handle, retval);
+	assert(initialized);
+	// pthread_join should return EDEADLK if you try to join with yourself..
+	return pthread_join(reinterpret_cast<Thread*>(thread)->handle, retval);
 }
 
 pthread_t pthread_self() {
-  assert(initialized);
-  Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-  return (pthread_t)thread.current_fiber;
+	assert(initialized);
+	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+	return (pthread_t)thread.current_fiber;
 }
 
 /**
@@ -373,40 +373,40 @@ pthread_t pthread_self() {
  * it's possible the TLS functions have been called, so we need to clean up that mess.
  */
 class Loader {
-  public: Loader() {
-    // Grab hooks to the real version of all hooked functions.
-    o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
-    o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
-    o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
-    o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
-    o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
-    o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
-    o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
-    dyn_pthread_key_create();
+	public: Loader() {
+		// Grab hooks to the real version of all hooked functions.
+		o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
+		o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
+		o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
+		o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
+		o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
+		o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
+		o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
+		dyn_pthread_key_create();
 
-    // Create a real TLS key to store the handle to Thread.
-    if (!did_reserve_key) {
-      did_reserve_key = true;
-      o_pthread_key_create(&thread_key, Thread::free);
-      prev_synthetic_key = thread_key;
-    }
-    Thread* thread = new Thread;
-    thread->handle = o_pthread_self();
-    o_pthread_setspecific(thread_key, thread);
+		// Create a real TLS key to store the handle to Thread.
+		if (!did_reserve_key) {
+			did_reserve_key = true;
+			o_pthread_key_create(&thread_key, Thread::free);
+			prev_synthetic_key = thread_key;
+		}
+		Thread* thread = new Thread;
+		thread->handle = o_pthread_self();
+		o_pthread_setspecific(thread_key, thread);
 
-    // Put all the data from the fake pthread_setspecific into FLS
-    initialized = true;
-    for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
-      pthread_key_t tmp;
-      thread->key_create(&tmp, pthread_early_dtors[ii]);
-      assert(tmp == ii - thread_key - 1);
-      thread->set_specific(tmp, pthread_early_vals[ii]);
-    }
+		// Put all the data from the fake pthread_setspecific into FLS
+		initialized = true;
+		for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
+			pthread_key_t tmp;
+			thread->key_create(&tmp, pthread_early_dtors[ii]);
+			assert(tmp == ii - thread_key - 1);
+			thread->set_specific(tmp, pthread_early_vals[ii]);
+		}
 
-    // Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
-    // this library from being loaded multiple times.
-    setenv("DYLD_INSERT_LIBRARIES", "", 1);
-    setenv("LD_PRELOAD", "", 1);
-  }
+		// Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
+		// this library from being loaded multiple times.
+		setenv("DYLD_INSERT_LIBRARIES", "", 1);
+		setenv("LD_PRELOAD", "", 1);
+	}
 };
 Loader loader;

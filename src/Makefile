@@ -1,12 +1,12 @@
 include platform.mk
 
 ifeq ($(NODE_PLATFORM), linux)
-  CPP_DYFLAGS = -fPIC -shared
-  CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
+	CPP_DYFLAGS = -fPIC -shared
+	CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
 endif
 ifeq ($(NODE_PLATFORM), darwin)
-  CPP_DYFLAGS = -dynamiclib
-  CPP_NODEFLAGS = -bundle -undefined dynamic_lookup
+	CPP_DYFLAGS = -dynamiclib
+	CPP_NODEFLAGS = -bundle -undefined dynamic_lookup
 endif
 COROUTINE_SO_FULL := $(shell echo `pwd`/$(COROUTINE_SO))
 
