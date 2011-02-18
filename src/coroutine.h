@@ -17,9 +17,9 @@ class Coroutine {
 		// around that, as there is no constructor.
 		struct char_noinit { char x; };
 		class Thread& thread;
-		size_t id;
 		ucontext_t context;
 		std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
+		std::vector<void*> fls_data;
 		volatile entry_t* entry;
 		volatile void* arg;
 
@@ -31,13 +31,13 @@ class Coroutine {
 		 * need a way to get back into the main thread after yielding to a fiber. Basically this
 		 * shouldn't be called from anywhere.
 		 */
-		Coroutine(Thread& t, size_t id);
+		Coroutine(Thread& t);
 
 		/**
 		 * This constructor will actually create a new fiber context. Execution does not begin
 		 * until you call run() for the first time.
 		 */
-		Coroutine(Thread& t, size_t id, entry_t& entry, void* arg);
+		Coroutine(Thread& t, entry_t& entry, void* arg);
 
 		/**
 		 * Resets the context of this coroutine from the start. Used to recyle old coroutines.

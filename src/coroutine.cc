@@ -73,9 +73,6 @@ void thread_trampoline(void** data);
 class Thread {
 	private:
 		static vector<pthread_dtor_t> dtors;
-		size_t fiber_ids;
-		stack<size_t> freed_fiber_ids;
-		vector<vector<void*> > fls_data;
 		vector<Coroutine*> fiber_pool;
 
 	public:
@@ -87,12 +84,11 @@ class Thread {
 			delete static_cast<Thread*>(that);
 		}
 
-		Thread() : fiber_ids(1), fls_data(1), handle(NULL), delete_me(NULL) {
-			current_fiber = new Coroutine(*this, 0);
+		Thread() : handle(NULL), delete_me(NULL) {
+			current_fiber = new Coroutine(*this);
 		}
 
 		~Thread() {
-			assert(freed_fiber_ids.size() == fiber_ids);
 			for (size_t ii = 0; ii < fiber_pool.size(); ++ii) {
 				delete fiber_pool[ii];
 			}
@@ -100,18 +96,17 @@ class Thread {
 
 		void coroutine_fls_dtor(Coroutine& fiber) {
 			bool did_delete;
-			vector<void*>& fiber_data = fls_data[fiber.id];
 			do {
 				did_delete = false;
-				for (size_t ii = 0; ii < fiber_data.size(); ++ii) {
-					if (fiber_data[ii]) {
+				for (size_t ii = 0; ii < fiber.fls_data.size(); ++ii) {
+					if (fiber.fls_data[ii]) {
 						if (dtors[ii]) {
-							void* tmp = fiber_data[ii];
-							fiber_data[ii] = NULL;
+							void* tmp = fiber.fls_data[ii];
+							fiber.fls_data[ii] = NULL;
 							dtors[ii](tmp);
 							did_delete = true;
 						} else {
-							fiber_data[ii] = NULL;
+							fiber.fls_data[ii] = NULL;
 						}
 					}
 				}
@@ -122,7 +117,6 @@ class Thread {
 			if (fiber_pool.size() < MAX_POOL_SIZE) {
 				fiber_pool.push_back(&fiber);
 			} else {
-				freed_fiber_ids.push(fiber.id);
 				coroutine_fls_dtor(fiber);
 				// Can't delete right now because we're currently on this stack!
 				assert(delete_me == NULL);
@@ -131,7 +125,6 @@ class Thread {
 		}
 
 		Coroutine& create_fiber(Coroutine::entry_t& entry, void* arg) {
-			size_t id;
 			if (!fiber_pool.empty()) {
 				Coroutine& fiber = *fiber_pool.back();
 				fiber_pool.pop_back();
@@ -139,28 +132,21 @@ class Thread {
 				return fiber;
 			}
 
-			if (!freed_fiber_ids.empty()) {
-				id = freed_fiber_ids.top();
-				freed_fiber_ids.pop();
-			} else {
-				fls_data.resize(fls_data.size() + 1);
-				id = fiber_ids++;
-			}
-			return *new Coroutine(*this, id, entry, arg);
+			return *new Coroutine(*this, entry, arg);
 		}
 
 		void* get_specific(pthread_key_t key) {
-			if (fls_data[current_fiber->id].size() <= key) {
+			if (const_cast<Coroutine*>(current_fiber)->fls_data.size() <= key) {
 				return NULL;
 			}
-			return fls_data[current_fiber->id][key];
+			return const_cast<Coroutine*>(current_fiber)->fls_data[key];
 		}
 
 		void set_specific(pthread_key_t key, const void* data) {
-			if (fls_data[current_fiber->id].size() <= key) {
-				fls_data[current_fiber->id].resize(key + 1);
+			if (const_cast<Coroutine*>(current_fiber)->fls_data.size() <= key) {
+				const_cast<Coroutine*>(current_fiber)->fls_data.resize(key + 1);
 			}
-			fls_data[current_fiber->id][key] = (void*)data;
+			const_cast<Coroutine*>(current_fiber)->fls_data[key] = (void*)data;
 		}
 
 		void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
@@ -172,15 +158,10 @@ class Thread {
 			if (!dtors[key]) {
 				return;
 			}
-			for (size_t ii = 0; ii < fls_data.size(); ++ii) {
-				if (fls_data[ii].size() <= key) {
-					continue;
-				}
-				while (fls_data[ii][key]) {
-					void* tmp = fls_data[ii][key];
-					fls_data[ii][key] = NULL;
-					dtors[key](tmp);
-				}
+			// This doesn't call the dtor on all threads / fibers. Do I really care?
+			if (get_specific(key)) {
+				dtors[key](get_specific(key));
+				set_specific(key, NULL);
 			}
 		}
 };
@@ -204,11 +185,10 @@ const bool Coroutine::is_local_storage_enabled() {
 	return did_hook_pthreads;
 }
 
-Coroutine::Coroutine(Thread& t, size_t id) : thread(t), id(id) {}
+Coroutine::Coroutine(Thread& t) : thread(t) {}
 
-Coroutine::Coroutine(Thread& t, size_t id, entry_t& entry, void* arg) :
+Coroutine::Coroutine(Thread& t, entry_t& entry, void* arg) :
 	thread(t),
-	id(id),
 	stack(STACK_SIZE),
 	entry(entry),
 	arg(arg) {
