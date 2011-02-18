@@ -13,7 +13,7 @@
 // No matter what I give it, it seems the stack size is always the same. And then if the actual
 // amount of memory allocated for the stack is too small it seg faults. It seems 265k is as low as
 // I can go without fixing the underlying bug.
-#define STACK_SIZE (1024 * 265)
+#define STACK_SIZE (1024 * 64)
 #define MAX_POOL_SIZE 120
 
 #include <iostream>
@@ -228,7 +228,7 @@ void Coroutine::finish(Coroutine& next) {
 }
 
 void* Coroutine::bottom() const {
-	return (char*)&stack[0] - STACK_SIZE;
+	return (char*)&stack[0];
 }
 
 size_t Coroutine::size() const {

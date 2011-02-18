@@ -334,9 +334,9 @@ class Fiber {
 				Locker locker;
 				HandleScope scope;
 
-				// Set stack guard for this "thread"
+				// Set the stack guard for this "thread"; 512 bytes of padding (?)
 				ResourceConstraints constraints;
-				constraints.set_stack_limit((uint32_t*)that.this_fiber->bottom());
+				constraints.set_stack_limit((uint32_t*)that.this_fiber->bottom() + 512);
 				SetResourceConstraints(&constraints);
 
 				TryCatch try_catch;
