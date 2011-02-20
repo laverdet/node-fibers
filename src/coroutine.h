@@ -22,6 +22,7 @@ class Coroutine {
 		std::vector<void*> fls_data;
 		volatile entry_t* entry;
 		volatile void* arg;
+		static size_t stack_size;
 
 		static void trampoline(Coroutine& that);
 		~Coroutine() {}
@@ -62,6 +63,12 @@ class Coroutine {
 		 * this library.
 		 */
 		static const bool is_local_storage_enabled();
+
+		/**
+		 * Set the size of coroutines created by this library. Since coroutines are pooled the stack
+		 * size is global instead of per-coroutine.
+		 */
+		static void set_stack_size(size_t size);
 
 		/**
 		 * Start or resume execution in this fiber. Note there is no explicit yield() function,

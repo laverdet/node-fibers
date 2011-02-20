@@ -11,6 +11,16 @@
 using namespace std;
 using namespace v8;
 
+// Default stack size is 64kb. This will become more like 300kb if you have snapshots enabled in
+// v8 (you probably do).
+namespace v8 { namespace internal {
+	class Snapshot {
+		public: static const int size_;
+	};
+}}
+
+static size_t stack_size = 64 * 1024;
+
 class Fiber {
 #define Unwrap(target, handle) \
 	assert(!handle.IsEmpty()); \
@@ -334,14 +344,18 @@ class Fiber {
 				Locker locker;
 				HandleScope scope;
 
-				// Set the stack guard for this "thread"; 512 bytes of padding (?)
+				// Set the stack guard for this "thread"; allow 2k of padding past the JS limit for C++ code to run
 				ResourceConstraints constraints;
-				constraints.set_stack_limit((uint32_t*)that.this_fiber->bottom() + 512);
+				constraints.set_stack_limit(reinterpret_cast<uint32_t*>((char*)that.this_fiber->bottom() + 2 * 1024));
 				SetResourceConstraints(&constraints);
 
 				TryCatch try_catch;
 				that.ClearWeak();
 				that.v8_context->Enter();
+
+				// Workaround for v8 issue #1180
+				// http://code.google.com/p/v8/issues/detail?id=1180
+				Script::Compile(String::New("void 0;"));
 
 				if (args->Length()) {
 					Handle<Value> argv[1] = { (*args)[0] };
@@ -486,4 +500,8 @@ extern "C" void init(Handle<Object> target) {
 	Handle<Object> global = Context::GetCurrent()->Global();
 	assert(Coroutine::is_local_storage_enabled());
 	Fiber::Init(global);
+	if (internal::Snapshot::size_) {
+		stack_size = internal::Snapshot::size_ + 8 * 1024;
+	}
+	Coroutine::set_stack_size(stack_size);
 }

@@ -9,11 +9,6 @@
 #include <stack>
 #include <vector>
 
-// TODO: It's clear I'm missing something with respects to ResourceConstraints.set_stack_limit.
-// No matter what I give it, it seems the stack size is always the same. And then if the actual
-// amount of memory allocated for the stack is too small it seg faults. It seems 265k is as low as
-// I can go without fixing the underlying bug.
-#define STACK_SIZE (1024 * 64)
 #define MAX_POOL_SIZE 120
 
 #include <iostream>
@@ -170,6 +165,7 @@ vector<pthread_dtor_t> Thread::dtors;
 /**
  * Coroutine class definition
  */
+size_t Coroutine::stack_size = 0;
 void Coroutine::trampoline(Coroutine &that) {
 	while (true) {
 		that.entry(const_cast<void*>(that.arg));
@@ -185,15 +181,20 @@ const bool Coroutine::is_local_storage_enabled() {
 	return did_hook_pthreads;
 }
 
+void Coroutine::set_stack_size(size_t size) {
+	assert(!Coroutine::stack_size);
+	Coroutine::stack_size = size;
+}
+
 Coroutine::Coroutine(Thread& t) : thread(t) {}
 
 Coroutine::Coroutine(Thread& t, entry_t& entry, void* arg) :
 	thread(t),
-	stack(STACK_SIZE),
+	stack(stack_size),
 	entry(entry),
 	arg(arg) {
 	getcontext(&context);
-	context.uc_stack.ss_size = STACK_SIZE;
+	context.uc_stack.ss_size = stack_size;
 	context.uc_stack.ss_sp = &stack[0];
 	makecontext(&context, (void(*)(void))trampoline, 1, this);
 }
@@ -232,7 +233,7 @@ void* Coroutine::bottom() const {
 }
 
 size_t Coroutine::size() const {
-	return sizeof(Coroutine) + STACK_SIZE;
+	return sizeof(Coroutine) + stack_size;
 }
 
 /**
