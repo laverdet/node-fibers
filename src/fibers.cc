@@ -11,16 +11,6 @@
 using namespace std;
 using namespace v8;
 
-// Default stack size is 64kb. This will become more like 300kb if you have snapshots enabled in
-// v8 (you probably do).
-namespace v8 { namespace internal {
-	class Snapshot {
-		public: static const int size_;
-	};
-}}
-
-static size_t stack_size = 64 * 1024;
-
 class Fiber {
 #define Unwrap(target, handle) \
 	assert(!handle.IsEmpty()); \
@@ -500,8 +490,6 @@ extern "C" void init(Handle<Object> target) {
 	Handle<Object> global = Context::GetCurrent()->Global();
 	assert(Coroutine::is_local_storage_enabled());
 	Fiber::Init(global);
-	if (internal::Snapshot::size_) {
-		stack_size = internal::Snapshot::size_ + 8 * 1024;
-	}
-	Coroutine::set_stack_size(stack_size);
+	// Default stack size of 64kb. Perhaps make this configurable by the run time?
+	Coroutine::set_stack_size(64 * 1024);
 }
