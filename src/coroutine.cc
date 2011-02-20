@@ -29,7 +29,6 @@ static int (*o_pthread_setspecific)(pthread_key_t, const void*);
 
 typedef int(pthread_key_create_t)(pthread_key_t*, pthread_dtor_t);
 static pthread_key_create_t* o_pthread_key_create = NULL;
-static pthread_key_create_t& dyn_pthread_key_create();
 
 /**
  * Very early on when this library is loaded there are callers to pthread_key_create,
@@ -51,9 +50,7 @@ static const void* pthread_early_vals[500] = { NULL };
 static pthread_dtor_t pthread_early_dtors[500] = { NULL };
 static pthread_key_t prev_synthetic_key = NULL;
 static bool did_hook_pthreads = false;
-static bool did_reserve_key = false;
 static pthread_key_t thread_key;
-static bool initialized = false;
 
 /**
  * Boing
@@ -144,9 +141,9 @@ class Thread {
 			const_cast<Coroutine*>(current_fiber)->fls_data[key] = (void*)data;
 		}
 
-		void key_create(pthread_key_t* key, pthread_dtor_t dtor) {
+		pthread_key_t key_create(pthread_dtor_t dtor) {
 			dtors.push_back(dtor);
-			*key = dtors.size() - 1; // TODO: This is NOT thread-safe! =O
+			return dtors.size() - 1; // TODO: This is NOT thread-safe! =O
 		}
 
 		void key_delete(pthread_key_t key) {
@@ -236,60 +233,113 @@ size_t Coroutine::size() const {
 	return sizeof(Coroutine) + stack_size;
 }
 
+class Loader {
+	public:
+	static bool hooks_ready;
+	static bool initialized;
+	/**
+	 * As soon as this library resolves the symbols for pthread_* it will start getting calls.
+	 * Unfortunately this happens before malloc is loaded, and it also happens before this library's
+	 * static initialization has occurred. This function bootstraps the library enough with primordial
+	 * data structures until we can finish in Loader().
+	 */
+	static void bootstrap() {
+		if (hooks_ready) {
+			return;
+		}
+		o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
+		o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
+		o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
+		o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
+		o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
+		o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
+		o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
+		o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
+
+		o_pthread_key_create(&thread_key, Thread::free);
+		prev_synthetic_key = thread_key;
+		for (size_t ii = 0; ii < thread_key; ++ii) {
+			if (pthread_early_vals[ii]) {
+				o_pthread_setspecific(ii, pthread_early_vals[ii]);
+			}
+		}
+		hooks_ready = true;
+	}
+
+	/**
+	 * Final initialization of this library. By the time we make it here malloc is ready. Also it's
+	 * likely the TLS functions have been called, so we need to put the data from the primordial TLS
+	 * storage into real FLS.
+	 */
+	Loader() {
+		// Create a real TLS key to store the handle to Thread.
+		Thread* thread = new Thread;
+		thread->handle = o_pthread_self();
+		o_pthread_setspecific(thread_key, thread);
+
+		// Put all the data from the fake pthread_setspecific into FLS
+		initialized = true;
+		for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
+			pthread_key_t tmp = thread->key_create(pthread_early_dtors[ii]);
+			assert(tmp == ii - thread_key - 1);
+			if (pthread_early_vals[ii]) {
+				thread->set_specific(tmp, pthread_early_vals[ii]);
+			}
+		}
+
+		// Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
+		// this library from being loaded multiple times.
+		setenv("DYLD_INSERT_LIBRARIES", "", 1);
+		setenv("LD_PRELOAD", "", 1);
+	}
+};
+Loader loader;
+bool Loader::hooks_ready = false;
+bool Loader::initialized = false;
+
 /**
  * TLS hooks
  */
-
 // See comment above MAX_EARLY_KEYS as to why these functions are difficult to hook.
 // Note well that in the `!initialized` case there is no heap. Calls to malloc, etc will crash your
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
-	if (initialized) {
-		if (thread_key >= key) {
-			return o_pthread_getspecific(key);
-		}
+	if (!Loader::hooks_ready) {
+		return (void*)pthread_early_vals[key];
+	} else if (thread_key >= key) {
+		return o_pthread_getspecific(key);
+	} else if (!Loader::initialized) {
+		return (void*)pthread_early_vals[key];
+	} else {
 		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
 		return thread.get_specific(key - thread_key - 1);
-	} else {
-		// We can't invoke the original function because dlsym tries to call pthread_getspecific
-		return const_cast<void*>(pthread_early_vals[key - thread_key - 1]);
 	}
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
-	if (initialized) {
-		if (thread_key >= key) {
-			return o_pthread_setspecific(key, data);
-		}
+	if (!Loader::hooks_ready) {
+		pthread_early_vals[key] = data;
+		return 0;
+	} else if (thread_key >= key) {
+		return o_pthread_setspecific(key, data);
+	} else if (!Loader::initialized) {
+		pthread_early_vals[key] = data;
+		return 0;
+	} else {
 		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
 		thread.set_specific(key - thread_key - 1, data);
 		return 0;
-	} else {
-		pthread_early_vals[key - thread_key - 1] = data;
-		return 0;
 	}
-}
-
-static pthread_key_create_t& dyn_pthread_key_create() {
-	did_hook_pthreads = true;
-	if (o_pthread_key_create == NULL) {
-		o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
-	}
-	return *o_pthread_key_create;
 }
 
 int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
-	if (initialized) {
+	Loader::bootstrap();
+	did_hook_pthreads = true;
+	if (Loader::initialized) {
 		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-		thread.key_create(key, dtor);
-		*key += thread_key + 1;
+		*key = thread.key_create(dtor) + thread_key + 1;
 		return 0;
 	} else {
-		if (!did_reserve_key) {
-			did_reserve_key = true;
-			dyn_pthread_key_create()(&thread_key, Thread::free);
-			prev_synthetic_key = thread_key;
-		}
 		*key = ++prev_synthetic_key;
 		pthread_early_dtors[*key] = dtor;
 		assert(prev_synthetic_key < MAX_EARLY_KEYS);
@@ -312,7 +362,7 @@ void thread_trampoline(void** args_vector) {
 }
 
 int pthread_create(pthread_t* handle, const pthread_attr_t* attr, void* (*entry)(void*), void* arg) {
-	assert(initialized);
+	assert(Loader::initialized);
 	void** args_vector = new void*[3];
 	args_vector[0] = (void*)entry;
 	args_vector[1] = arg;
@@ -324,7 +374,7 @@ int pthread_create(pthread_t* handle, const pthread_attr_t* attr, void* (*entry)
 }
 
 int pthread_key_delete(pthread_key_t key) {
-	assert(initialized);
+	assert(Loader::initialized);
 	if (thread_key >= key) {
 		return o_pthread_key_delete(key);
 	}
@@ -338,56 +388,13 @@ int pthread_equal(pthread_t left, pthread_t right) {
 }
 
 int pthread_join(pthread_t thread, void** retval) {
-	assert(initialized);
+	assert(Loader::initialized);
 	// pthread_join should return EDEADLK if you try to join with yourself..
 	return pthread_join(reinterpret_cast<Thread*>(thread)->handle, retval);
 }
 
 pthread_t pthread_self() {
-	assert(initialized);
+	assert(Loader::initialized);
 	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
 	return (pthread_t)thread.current_fiber;
 }
-
-/**
- * Initialization of this library. By the time we make it here the heap should be good to go. Also
- * it's possible the TLS functions have been called, so we need to clean up that mess.
- */
-class Loader {
-	public: Loader() {
-		// Grab hooks to the real version of all hooked functions.
-		o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
-		o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
-		o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
-		o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
-		o_pthread_join = (int(*)(pthread_key_t, void**))dlsym(RTLD_NEXT, "pthread_join");
-		o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
-		o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
-		dyn_pthread_key_create();
-
-		// Create a real TLS key to store the handle to Thread.
-		if (!did_reserve_key) {
-			did_reserve_key = true;
-			o_pthread_key_create(&thread_key, Thread::free);
-			prev_synthetic_key = thread_key;
-		}
-		Thread* thread = new Thread;
-		thread->handle = o_pthread_self();
-		o_pthread_setspecific(thread_key, thread);
-
-		// Put all the data from the fake pthread_setspecific into FLS
-		initialized = true;
-		for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
-			pthread_key_t tmp;
-			thread->key_create(&tmp, pthread_early_dtors[ii]);
-			assert(tmp == ii - thread_key - 1);
-			thread->set_specific(tmp, pthread_early_vals[ii]);
-		}
-
-		// Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
-		// this library from being loaded multiple times.
-		setenv("DYLD_INSERT_LIBRARIES", "", 1);
-		setenv("LD_PRELOAD", "", 1);
-	}
-};
-Loader loader;
