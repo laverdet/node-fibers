@@ -20,8 +20,8 @@ class Coroutine {
 		ucontext_t context;
 		std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
 		std::vector<void*> fls_data;
-		volatile entry_t* entry;
-		volatile void* arg;
+		entry_t* entry;
+		void* arg;
 		static size_t stack_size;
 
 		static void trampoline(Coroutine& that);
@@ -71,10 +71,16 @@ class Coroutine {
 		static void set_stack_size(size_t size);
 
 		/**
+		 * Access to fiber-local storage.
+		 */
+		void* get_specific(pthread_key_t key);
+		void set_specific(pthread_key_t key, const void* data);
+
+		/**
 		 * Start or resume execution in this fiber. Note there is no explicit yield() function,
 		 * you must manually run another fiber.
 		 */
-		void run() volatile;
+		void run();
 
 		/**
 		 * Finish this coroutine.. This will halt execution of this coroutine and resume execution

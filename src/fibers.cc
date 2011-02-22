@@ -21,9 +21,9 @@ class Fiber {
 	target = *static_cast<Fiber*>(handle->GetPointerFromInternalField(0));
 
 	private:
-		static Locker* locker; // Node does not use locks or threads, so we need a global lock
+		static Locker* global_locker; // Node does not use locks or threads, so we need a global lock
 		static Persistent<FunctionTemplate> tmpl;
-		static volatile Fiber* current;
+		static Fiber* current;
 		static vector<Fiber*> orphaned_fibers;
 		static Persistent<Value> fatal_stack;
 		static Persistent<String> fiber_token;
@@ -33,18 +33,18 @@ class Fiber {
 		Persistent<Context> v8_context;
 		Persistent<Value> zombie_exception;
 		Persistent<Value> yielded;
-		volatile bool yielded_exception;
-		volatile Coroutine* entry_fiber;
+		bool yielded_exception;
+		Coroutine* entry_fiber;
 		Coroutine* this_fiber;
-		volatile bool started;
-		volatile bool yielding;
-		volatile bool zombie;
-		volatile bool resetting;
+		bool started;
+		bool yielding;
+		bool zombie;
+		bool resetting;
 
-		Fiber(Persistent<Object> handle, Persistent<Function> cb, Persistent<Context> v8_context) :
-			handle(handle),
-			cb(cb),
-			v8_context(v8_context),
+		Fiber(Handle<Object> handle, Handle<Function> cb, Handle<Context> v8_context) :
+			handle(Persistent<Object>::New(handle)),
+			cb(Persistent<Function>::New(cb)),
+			v8_context(Persistent<Context>::New(v8_context)),
 			started(false),
 			yielding(false),
 			zombie(false),
@@ -81,7 +81,7 @@ class Fiber {
 		 * the fiber is currently suspended we'll unwind the fiber's stack by throwing exceptions in
 		 * order to clear all references.
 		 */
-		static void WeakCallback(Persistent<Value> value, void *data) {
+		static void WeakCallback(Persistent<Value> value, void* data) {
 			Fiber& that = *static_cast<Fiber*>(data);
 			assert(that.handle == value);
 			assert(value.IsNearDeath());
@@ -142,8 +142,6 @@ class Fiber {
 		 * callback; it doesn't create any new contexts until run() is called.
 		 */
 		static Handle<Value> New(const Arguments& args) {
-
-			HandleScope scope;
 			if (args.Length() != 1) {
 				THROW(Exception::TypeError, "Fiber expects 1 argument");
 			} else if (!args[0]->IsFunction()) {
@@ -155,10 +153,7 @@ class Fiber {
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
 			args.This()->SetHiddenValue(fiber_token, Boolean::New(true));
-			new Fiber(
-				Persistent<Object>::New(args.This()),
-				Persistent<Function>::New(fn),
-				Persistent<Context>::New(Context::GetCurrent()));
+			new Fiber(args.This(), fn, Context::GetCurrent());
 			return args.This();
 		}
 
@@ -167,7 +162,6 @@ class Fiber {
 		 * be created and the callback will start. Otherwise we switch back into the exist context.
 		 */
 		static Handle<Value> Run(const Arguments& args) {
-			HandleScope scope;
 			Unwrap(Fiber& that, args.This());
 
 			// There seems to be no better place to put this check..
@@ -206,7 +200,6 @@ class Fiber {
 		 * Throw an exception into a currently yielding fiber.
 		 */
 		static Handle<Value> ThrowInto(const Arguments& args) {
-			HandleScope scope;
 			Unwrap(Fiber& that, args.This());
 
 			if (!that.yielding) {
@@ -228,7 +221,6 @@ class Fiber {
 		 * effect.
 		 */
 		static Handle<Value> Reset(const Arguments& args) {
-			HandleScope scope;
 			Unwrap(Fiber& that, args.This());
 
 			if (!that.started) {
@@ -263,7 +255,6 @@ class Fiber {
 			assert(!zombie);
 			assert(started);
 			assert(yielding);
-			HandleScope scope;
 			zombie = true;
 
 			// Setup an exception which will be thrown and rethrown from Fiber::Yield()
@@ -294,7 +285,7 @@ class Fiber {
 		void SwapContext() {
 
 			entry_fiber = &Coroutine::current();
-			Fiber* last_fiber = const_cast<Fiber*>(current);
+			Fiber* last_fiber = current;
 			current = this;
 
 			// This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
@@ -312,7 +303,6 @@ class Fiber {
 		 * Grabs and resets this fiber's yielded value.
 		 */
 		Handle<Value> ReturnYielded() {
-			HandleScope scope;
 			Handle<Value> val = yielded;
 			yielded.Dispose();
 			if (yielded_exception) {
@@ -330,13 +320,18 @@ class Fiber {
 			Fiber& that = *(Fiber*)data[1];
 			delete[] data;
 
+			// New C scope so that the stack-allocated objects will be destroyed before calling
+			// Coroutine::finish, because that function may not return, in which case the destructors in
+			// this function won't be called.
 			{
 				Locker locker;
 				HandleScope scope;
 
-				// Set the stack guard for this "thread"; allow 2k of padding past the JS limit for C++ code to run
+				// Set the stack guard for this "thread"; allow 2k of padding past the JS limit for C++ code
+				// to run
 				ResourceConstraints constraints;
-				constraints.set_stack_limit(reinterpret_cast<uint32_t*>((char*)that.this_fiber->bottom() + 2 * 1024));
+				constraints.set_stack_limit(reinterpret_cast<uint32_t*>(
+					(char*)that.this_fiber->bottom() + 2 * 1024));
 				SetResourceConstraints(&constraints);
 
 				TryCatch try_catch;
@@ -347,15 +342,15 @@ class Fiber {
 				// http://code.google.com/p/v8/issues/detail?id=1180
 				Script::Compile(String::New("void 0;"));
 
+				Handle<Value> yielded;
 				if (args->Length()) {
 					Handle<Value> argv[1] = { (*args)[0] };
-					that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 1, argv));
+					yielded = that.cb->Call(that.v8_context->Global(), 1, argv);
 				} else {
-					that.yielded = Persistent<Value>::New(that.cb->Call(that.v8_context->Global(), 0, NULL));
+					yielded = that.cb->Call(that.v8_context->Global(), 0, NULL);
 				}
 
 				if (try_catch.HasCaught()) {
-					that.yielded.Dispose();
 					that.yielded = Persistent<Value>::New(try_catch.Exception());
 					that.yielded_exception = true;
 					if (that.zombie && !that.resetting && that.yielded != that.zombie_exception) {
@@ -363,6 +358,7 @@ class Fiber {
 						fatal_stack = Persistent<Value>::New(try_catch.StackTrace());
 					}
 				} else {
+					that.yielded = Persistent<Value>::New(yielded);
 					that.yielded_exception = false;
 				}
 
@@ -382,7 +378,7 @@ class Fiber {
 
 			// The function returned (instead of yielding).
 			that.started = false;
-			that.this_fiber->finish(*const_cast<Coroutine*>(that.entry_fiber));
+			that.this_fiber->finish(*that.entry_fiber);
 		}
 
 		/**
@@ -390,13 +386,11 @@ class Fiber {
 		 * is returned from `run()`. The context is saved, to be later resumed from `run()`.
 		 */
 		static Handle<Value> Yield(const Arguments& args) {
-			HandleScope scope;
-
 			if (current == NULL) {
 				THROW(Exception::Error, "yield() called with no fiber running");
 			}
 
-			Fiber& that = *const_cast<Fiber*>(current);
+			Fiber& that = *current;
 
 			if (that.zombie) {
 				return ThrowException(that.zombie_exception);
@@ -440,7 +434,7 @@ class Fiber {
 
 		static Handle<Value> GetCurrent(Local<String> property, const AccessorInfo& info) {
 			if (current) {
-				return const_cast<Fiber*>(current)->handle;
+				return current->handle;
 			} else {
 				return Undefined();
 			}
@@ -456,9 +450,9 @@ class Fiber {
 			// shutting down. TODO: There's likely a better way to accomplish this, but since the
 			// application is going down lost memory isn't the end of the world. But with a regular lock
 			// there's seg faults when node shuts down.
-			Fiber::locker = new Locker;
+			global_locker = new Locker;
 			current = NULL;
-			HandleScope scope;
+
 			tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
 			tmpl->SetClassName(String::NewSymbol("Fiber"));
 
@@ -479,8 +473,8 @@ class Fiber {
 };
 
 Persistent<FunctionTemplate> Fiber::tmpl;
-Locker* Fiber::locker;
-volatile Fiber* Fiber::current = NULL;
+Locker* Fiber::global_locker;
+Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
 Persistent<String> Fiber::fiber_token;

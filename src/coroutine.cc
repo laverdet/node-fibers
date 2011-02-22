@@ -20,15 +20,13 @@ using namespace std;
 typedef void(*pthread_dtor_t)(void*);
 
 static int (*o_pthread_create)(pthread_t*, const pthread_attr_t*, void*(*)(void*), void*);
+static int (*o_pthread_key_create)(pthread_key_t*, pthread_dtor_t);
 static int (*o_pthread_key_delete)(pthread_key_t);
 static int (*o_pthread_equal)(pthread_t, pthread_t);
 static void* (*o_pthread_getspecific)(pthread_key_t);
 static int (*o_pthread_join)(pthread_key_t, void**);
 static pthread_t (*o_pthread_self)(void);
 static int (*o_pthread_setspecific)(pthread_key_t, const void*);
-
-typedef int(pthread_key_create_t)(pthread_key_t*, pthread_dtor_t);
-static pthread_key_create_t* o_pthread_key_create = NULL;
 
 /**
  * Very early on when this library is loaded there are callers to pthread_key_create,
@@ -46,7 +44,7 @@ static pthread_key_create_t* o_pthread_key_create = NULL;
  * technically opaque.
  */
 static const size_t MAX_EARLY_KEYS = 500;
-static const void* pthread_early_vals[500] = { NULL };
+static void* pthread_early_vals[500] = { NULL };
 static pthread_dtor_t pthread_early_dtors[500] = { NULL };
 static pthread_key_t prev_synthetic_key = NULL;
 static bool did_hook_pthreads = false;
@@ -69,8 +67,8 @@ class Thread {
 
 	public:
 		pthread_t handle;
-		volatile Coroutine* current_fiber;
-		volatile Coroutine* delete_me;
+		Coroutine* current_fiber;
+		Coroutine* delete_me;
 
 		static void free(void* that) {
 			delete static_cast<Thread*>(that);
@@ -127,23 +125,13 @@ class Thread {
 			return *new Coroutine(*this, entry, arg);
 		}
 
-		void* get_specific(pthread_key_t key) {
-			if (const_cast<Coroutine*>(current_fiber)->fls_data.size() <= key) {
-				return NULL;
-			}
-			return const_cast<Coroutine*>(current_fiber)->fls_data[key];
+		static Thread& current() {
+			return *static_cast<Thread*>(o_pthread_getspecific(thread_key));
 		}
 
-		void set_specific(pthread_key_t key, const void* data) {
-			if (const_cast<Coroutine*>(current_fiber)->fls_data.size() <= key) {
-				const_cast<Coroutine*>(current_fiber)->fls_data.resize(key + 1);
-			}
-			const_cast<Coroutine*>(current_fiber)->fls_data[key] = (void*)data;
-		}
-
-		pthread_key_t key_create(pthread_dtor_t dtor) {
+		static pthread_key_t key_create(pthread_dtor_t dtor) {
 			dtors.push_back(dtor);
-			return dtors.size() - 1; // TODO: This is NOT thread-safe! =O
+			return dtors.size() - 1; // This is NOT thread-safe! =O!
 		}
 
 		void key_delete(pthread_key_t key) {
@@ -151,9 +139,9 @@ class Thread {
 				return;
 			}
 			// This doesn't call the dtor on all threads / fibers. Do I really care?
-			if (get_specific(key)) {
-				dtors[key](get_specific(key));
-				set_specific(key, NULL);
+			while (current_fiber->get_specific(key)) {
+				dtors[key](current_fiber->get_specific(key));
+				current_fiber->set_specific(key, NULL);
 			}
 		}
 };
@@ -170,8 +158,7 @@ void Coroutine::trampoline(Coroutine &that) {
 }
 
 Coroutine& Coroutine::current() {
-	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-	return *const_cast<Coroutine*>(thread.current_fiber);
+	return *Thread::current().current_fiber;
 }
 
 const bool Coroutine::is_local_storage_enabled() {
@@ -206,8 +193,8 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 	this->arg = arg;
 }
 
-void Coroutine::run() volatile {
-	Coroutine& current = *const_cast<Coroutine*>(thread.current_fiber);
+void Coroutine::run() {
+	Coroutine& current = *thread.current_fiber;
 	assert(&current != this);
 	if (thread.delete_me) {
 		assert(this != thread.delete_me);
@@ -216,7 +203,7 @@ void Coroutine::run() volatile {
 		thread.delete_me = NULL;
 	}
 	thread.current_fiber = this;
-	swapcontext(&current.context, const_cast<ucontext_t*>(&context));
+	swapcontext(&current.context, &context);
 }
 
 void Coroutine::finish(Coroutine& next) {
@@ -231,6 +218,20 @@ void* Coroutine::bottom() const {
 
 size_t Coroutine::size() const {
 	return sizeof(Coroutine) + stack_size;
+}
+
+void* Coroutine::get_specific(pthread_key_t key) {
+	if (fls_data.size() <= key) {
+		return NULL;
+	}
+	return fls_data[key];
+}
+
+void Coroutine::set_specific(pthread_key_t key, const void* data) {
+	if (fls_data.size() <= key) {
+		fls_data.resize(key + 1);
+	}
+	fls_data[key] = (void*)data;
 }
 
 class Loader {
@@ -248,7 +249,7 @@ class Loader {
 			return;
 		}
 		o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
-		o_pthread_key_create = (pthread_key_create_t*)dlsym(RTLD_NEXT, "pthread_key_create");
+		o_pthread_key_create = (int(*)(pthread_key_t*, pthread_dtor_t))dlsym(RTLD_NEXT, "pthread_key_create");
 		o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
 		o_pthread_equal = (int(*)(pthread_t, pthread_t))dlsym(RTLD_NEXT, "pthread_equal");
 		o_pthread_getspecific = (void*(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
@@ -281,11 +282,12 @@ class Loader {
 
 		// Put all the data from the fake pthread_setspecific into FLS
 		initialized = true;
+		Coroutine& current = Coroutine::current();
 		for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
 			pthread_key_t tmp = thread->key_create(pthread_early_dtors[ii]);
 			assert(tmp == ii - thread_key - 1);
 			if (pthread_early_vals[ii]) {
-				thread->set_specific(tmp, pthread_early_vals[ii]);
+				current.set_specific(tmp, pthread_early_vals[ii]);
 			}
 		}
 
@@ -307,29 +309,27 @@ bool Loader::initialized = false;
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
 	if (!Loader::hooks_ready) {
-		return (void*)pthread_early_vals[key];
+		return pthread_early_vals[key];
 	} else if (thread_key >= key) {
 		return o_pthread_getspecific(key);
 	} else if (!Loader::initialized) {
-		return (void*)pthread_early_vals[key];
+		return pthread_early_vals[key];
 	} else {
-		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-		return thread.get_specific(key - thread_key - 1);
+		return Coroutine::current().get_specific(key - thread_key - 1);
 	}
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
 	if (!Loader::hooks_ready) {
-		pthread_early_vals[key] = data;
+		pthread_early_vals[key] = (void*)data;
 		return 0;
 	} else if (thread_key >= key) {
 		return o_pthread_setspecific(key, data);
 	} else if (!Loader::initialized) {
-		pthread_early_vals[key] = data;
+		pthread_early_vals[key] = (void*)data;
 		return 0;
 	} else {
-		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-		thread.set_specific(key - thread_key - 1, data);
+		Coroutine::current().set_specific(key - thread_key - 1, data);
 		return 0;
 	}
 }
@@ -338,8 +338,7 @@ int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
 	Loader::bootstrap();
 	did_hook_pthreads = true;
 	if (Loader::initialized) {
-		Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-		*key = thread.key_create(dtor) + thread_key + 1;
+		*key = Thread::current().key_create(dtor) + thread_key + 1;
 		return 0;
 	} else {
 		*key = ++prev_synthetic_key;
@@ -380,8 +379,7 @@ int pthread_key_delete(pthread_key_t key) {
 	if (thread_key >= key) {
 		return o_pthread_key_delete(key);
 	}
-	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-	thread.key_delete(key - thread_key - 1);
+	Thread::current().key_delete(key - thread_key - 1);
 	return 0;
 }
 
@@ -397,6 +395,5 @@ int pthread_join(pthread_t thread, void** retval) {
 
 pthread_t pthread_self() {
 	assert(Loader::initialized);
-	Thread& thread = *static_cast<Thread*>(o_pthread_getspecific(thread_key));
-	return (pthread_t)thread.current_fiber;
+	return (pthread_t)&Coroutine::current();
 }
