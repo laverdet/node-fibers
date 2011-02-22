@@ -14,7 +14,7 @@ using namespace v8;
 class Fiber {
 #define Unwrap(target, handle) \
 	assert(!handle.IsEmpty()); \
-	if (!handle->IsObject() || handle->GetHiddenValue(fiber_token).IsEmpty()) { \
+	if (!handle->IsObject() || handle->GetHiddenValue(sym_fiber_token).IsEmpty()) { \
 		THROW(Exception::TypeError, "Illegal invocation"); \
 	} \
 	assert(handle->InternalFieldCount() == 1); \
@@ -23,10 +23,12 @@ class Fiber {
 	private:
 		static Locker* global_locker; // Node does not use locks or threads, so we need a global lock
 		static Persistent<FunctionTemplate> tmpl;
+		static Persistent<Function> fiber_object;
 		static Fiber* current;
 		static vector<Fiber*> orphaned_fibers;
 		static Persistent<Value> fatal_stack;
-		static Persistent<String> fiber_token;
+		static Persistent<String> sym_fiber_token;
+		static Persistent<String> sym_current;
 
 		Persistent<Object> handle;
 		Persistent<Function> cb;
@@ -51,6 +53,7 @@ class Fiber {
 			resetting(false) {
 			MakeWeak();
 			handle->SetPointerInInternalField(0, this);
+				V8::AdjustAmountOfExternalAllocatedMemory(1024 * 1024 * 50);
 		}
 
 		virtual ~Fiber() {
@@ -58,6 +61,7 @@ class Fiber {
 			handle.Dispose();
 			cb.Dispose();
 			v8_context.Dispose();
+				V8::AdjustAmountOfExternalAllocatedMemory(-1024 * 1024 * 50);
 		}
 
 		/**
@@ -152,7 +156,7 @@ class Fiber {
 			}
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
-			args.This()->SetHiddenValue(fiber_token, Boolean::New(true));
+			args.This()->SetHiddenValue(sym_fiber_token, Boolean::New(true));
 			new Fiber(args.This(), fn, Context::GetCurrent());
 			return args.This();
 		}
@@ -287,6 +291,7 @@ class Fiber {
 			entry_fiber = &Coroutine::current();
 			Fiber* last_fiber = current;
 			current = this;
+			fiber_object->Set(sym_current, current->handle);
 
 			// This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
 			// already running.
@@ -297,6 +302,11 @@ class Fiber {
 
 			// At this point the fiber either returned or called `yield()`.
 			current = last_fiber;
+			if (last_fiber) {
+				fiber_object->Set(sym_current, last_fiber->handle);
+			} else {
+				fiber_object->Set(sym_current, Undefined());
+			}
 		}
 
 		/**
@@ -432,14 +442,6 @@ class Fiber {
 			return Boolean::New(that.started);
 		}
 
-		static Handle<Value> GetCurrent(Local<String> property, const AccessorInfo& info) {
-			if (current) {
-				return current->handle;
-			} else {
-				return Undefined();
-			}
-		}
-
 	public:
 		/**
 		 * Initialize the Fiber library.
@@ -456,7 +458,7 @@ class Fiber {
 			tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
 			tmpl->SetClassName(String::NewSymbol("Fiber"));
 
-			fiber_token = Persistent<String>::New(String::NewSymbol("is_fiber"));
+			sym_fiber_token = Persistent<String>::New(String::NewSymbol("is_fiber"));
 			tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
 			Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
@@ -466,18 +468,22 @@ class Fiber {
 			proto->SetAccessor(String::NewSymbol("started"), GetStarted);
 
 			Handle<Function> fn = tmpl->GetFunction();
-			fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
+			sym_current = Persistent<String>::New(String::NewSymbol("current"));
+			fn->Set(sym_current, Undefined());
 			target->Set(String::NewSymbol("Fiber"), fn);
 			target->Set(String::NewSymbol("yield"), FunctionTemplate::New(Yield)->GetFunction());
+			fiber_object = Persistent<Function>::New(fn);
 		}
 };
 
 Persistent<FunctionTemplate> Fiber::tmpl;
+Persistent<Function> Fiber::fiber_object;
 Locker* Fiber::global_locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
-Persistent<String> Fiber::fiber_token;
+Persistent<String> Fiber::sym_fiber_token;
+Persistent<String> Fiber::sym_current;
 
 extern "C" void init(Handle<Object> target) {
 	HandleScope scope;
