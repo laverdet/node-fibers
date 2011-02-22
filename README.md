@@ -46,7 +46,7 @@ other events.
 	}).run();
 	print('back in main\n');
 
-	$ ./node-fibers sleep.js
+	$ node-fibers sleep.js
 	wait... Fri Jan 21 2011 22:42:04 GMT+0900 (JST)
 	back in main
 	ok... Fri Jan 21 2011 22:42:05 GMT+0900 (JST)
@@ -70,7 +70,7 @@ can also pass values back and forth through yield() and run().
 		print(ii + '\n');
 	}
 
-	$ ./node-fibers generator.js
+	$ node-fibers generator.js
 	1
 	2
 	3
@@ -110,7 +110,7 @@ boundaries:
 	}
 	print('done!\n');
 
-	$ ./node-fibers error.js
+	$ node-fibers error.js
 	async work here...
 	still working...
 	just a little bit more...
@@ -184,7 +184,7 @@ functions:
 	}).run();
 	print('returning control to node event loop\n');
 
-	$ ./node-fibers adapter.js
+	$ node-fibers adapter.js
 	opening /tmp/hello
 	returning control to node event loop
 	writing to file
