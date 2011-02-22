@@ -272,6 +272,8 @@ class Loader {
 	 * storage into real FLS.
 	 */
 	Loader() {
+		Loader::bootstrap();
+
 		// Create a real TLS key to store the handle to Thread.
 		Thread* thread = new Thread;
 		thread->handle = o_pthread_self();
