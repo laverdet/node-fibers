@@ -7,6 +7,12 @@
 #include <iostream>
 
 #define THROW(x, m) return ThrowException(x(String::New(m)))
+#ifdef DEBUG
+// Run GC more often when debugging
+#define GC_ADJUST 100
+#else
+#define GC_ADJUST 1
+#endif
 
 using namespace std;
 using namespace v8;
@@ -53,7 +59,6 @@ class Fiber {
 			resetting(false) {
 			MakeWeak();
 			handle->SetPointerInInternalField(0, this);
-				V8::AdjustAmountOfExternalAllocatedMemory(1024 * 1024 * 50);
 		}
 
 		virtual ~Fiber() {
@@ -61,7 +66,6 @@ class Fiber {
 			handle.Dispose();
 			cb.Dispose();
 			v8_context.Dispose();
-				V8::AdjustAmountOfExternalAllocatedMemory(-1024 * 1024 * 50);
 		}
 
 		/**
@@ -184,7 +188,7 @@ class Fiber {
 				data[0] = (void*)&args;
 				data[1] = &that;
 				that.this_fiber = &Coroutine::create_fiber((void (*)(void*))RunFiber, data);
-				V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size());
+				V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size() * GC_ADJUST);
 			} else {
 				// If the fiber is currently running put the first parameter to `run()` on `yielded`, then
 				// the pending call to `yield()` will return that value. `yielded` in this case is just a
@@ -374,7 +378,7 @@ class Fiber {
 
 				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
 				// otherwise.
-				V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size());
+				V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size() * GC_ADJUST);
 
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
