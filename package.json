@@ -1,6 +1,6 @@
 {
 	"name": "fibers",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Cooperative multi-tasking for Javascript; or, the closest thing to a thread you'll see in node",
 	"keywords": ["fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker"],
 	"homepage": "https://github.com/laverdet/node-fibers",
@@ -10,8 +10,7 @@
 		"install": "make clean all"
 	},
 	"bin": {
-		"node-fibers": "./bin/node-fibers",
-		"fiber-shim": "./bin/fiber-shim"
+		"node-fibers": "./bin/node-fibers"
 	},
 	"man": "./man/fibers.1",
 	"repository": {
@@ -20,6 +19,6 @@
 	},
 	"os": ["macos", "linux"],
 	"engines": {
-		"node": ">=0.2.0"
+		"node": ">=0.3.0"
 	}
 }

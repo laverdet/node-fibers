@@ -1,2 +1,33 @@
 #!/bin/bash
-`dirname "$0"`/fiber-shim node "$@"
+
+NODE=`which node`
+if [[ -z "$NODE" ]]; then
+	echo "Could not find node in PATH!" 1>&2
+	exit 1
+fi
+
+if [[ -e `dirname "$0"`/../src/fibers.node ]]; then
+	# running straight from dist
+	FIBERS_ROOT=`dirname "$0"`/../src
+else
+	# in npm
+	FIBERS_PATH=`echo 'require.resolve("fibers")' | $NODE | head -n1 | egrep -o '/[^'\'']+'`
+	FIBERS_ROOT=`dirname "$FIBERS_PATH"`/src
+	if [[ ! -e "$FIBERS_ROOT/fibers.node" ]]; then
+		echo "Could not find the coroutine shim!" 1>&2
+		exit 1
+	fi
+fi
+
+UNAME=`uname`
+if [[ "$UNAME" == "Linux" ]]; then
+	FIBER_SHIM=1 \
+	LD_PRELOAD="$FIBERS_ROOT/coroutine.so" \
+	$NODE "$@"
+elif [[ "$UNAME" == "Darwin" ]]; then
+	FIBER_SHIM=1 \
+	DYLD_INSERT_LIBRARIES="$FIBERS_ROOT/coroutine.dylib" \
+	DYLD_FORCE_FLAT_NAMESPACE=1 \
+	DYLD_LIBRARY_PATH="$FIBERS_ROOT" \
+	$NODE "$@"
+fi

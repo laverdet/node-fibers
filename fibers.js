@@ -1,7 +1,7 @@
 var fs = require('fs');
 
 if (fs.statSync(process.execPath).mtime >
-		fs.statSync(__dirname + '/src/fibers.node').mtime) {
+		fs.statSync(require.resolve('./src/fibers')).mtime) {
 	throw new Error(
 		'`node` has a newer mtime than `fiber`; it is possible your build is out of date. This ' +
 		'could happen if you upgrade node. Try `npm rebuild fibers` to rebuild. If that doesn\'t ' +
