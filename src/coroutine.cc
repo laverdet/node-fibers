@@ -125,8 +125,8 @@ class Thread {
 			return *new Coroutine(*this, entry, arg);
 		}
 
-		static Thread& current() {
-			return *static_cast<Thread*>(o_pthread_getspecific(thread_key));
+		static Thread* current() {
+			return static_cast<Thread*>(o_pthread_getspecific(thread_key));
 		}
 
 		static pthread_key_t key_create(pthread_dtor_t dtor) {
@@ -158,7 +158,7 @@ void Coroutine::trampoline(Coroutine &that) {
 }
 
 Coroutine& Coroutine::current() {
-	return *Thread::current().current_fiber;
+	return *Thread::current()->current_fiber;
 }
 
 const bool Coroutine::is_local_storage_enabled() {
@@ -338,7 +338,7 @@ int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
 	Loader::bootstrap();
 	did_hook_pthreads = true;
 	if (Loader::initialized) {
-		*key = Thread::current().key_create(dtor) + thread_key + 1;
+		*key = Thread::current()->key_create(dtor) + thread_key + 1;
 		return 0;
 	} else {
 		*key = ++prev_synthetic_key;
@@ -379,7 +379,7 @@ int pthread_key_delete(pthread_key_t key) {
 	if (thread_key >= key) {
 		return o_pthread_key_delete(key);
 	}
-	Thread::current().key_delete(key - thread_key - 1);
+	Thread::current()->key_delete(key - thread_key - 1);
 	return 0;
 }
 
@@ -394,6 +394,10 @@ int pthread_join(pthread_t thread, void** retval) {
 }
 
 pthread_t pthread_self() {
-	assert(Loader::initialized);
-	return (pthread_t)&Coroutine::current();
+	Thread* thread = Thread::current();
+	if (thread) {
+		return (pthread_t)thread->current_fiber;
+	} else {
+		return o_pthread_self();
+	}
 }
