@@ -46,7 +46,7 @@ static int (*o_pthread_setspecific)(pthread_key_t, const void*);
 static const size_t MAX_EARLY_KEYS = 500;
 static void* pthread_early_vals[500] = { NULL };
 static pthread_dtor_t pthread_early_dtors[500] = { NULL };
-static pthread_key_t prev_synthetic_key = NULL;
+static pthread_key_t prev_synthetic_key = 0;
 static bool did_hook_pthreads = false;
 static pthread_key_t thread_key;
 
@@ -74,7 +74,7 @@ class Thread {
 			delete static_cast<Thread*>(that);
 		}
 
-		Thread() : handle(NULL), delete_me(NULL) {
+		Thread() : handle(0), delete_me(NULL) {
 			current_fiber = new Coroutine(*this);
 		}
 
@@ -383,9 +383,14 @@ int pthread_key_delete(pthread_key_t key) {
 	return 0;
 }
 
+#ifndef __USE_EXTERN_INLINES
+// If __USE_EXTERN_INLINES is enabled an inline version of this function will be defined, and you
+// get duplicate definition errors. Since we only override to make sure the distribution isn't doing
+// anything shady we skip it in the inline case.
 int pthread_equal(pthread_t left, pthread_t right) {
 	return left == right;
 }
+#endif
 
 int pthread_join(pthread_t thread, void** retval) {
 	assert(Loader::initialized);
