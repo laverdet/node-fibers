@@ -437,7 +437,7 @@ class Fiber {
 		 * Getters for `started`, and `current`.
 		 */
 		static Handle<Value> GetStarted(Local<String> property, const AccessorInfo& info) {
-			Unwrap(Fiber& that, info.Holder());
+			Unwrap(Fiber& that, info.This());
 			return Boolean::New(that.started);
 		}
 
