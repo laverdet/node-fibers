@@ -454,12 +454,16 @@ class Fiber {
 			global_locker = new Locker;
 			current = NULL;
 
+			// Fiber constructor
 			tmpl = Persistent<FunctionTemplate>::New(FunctionTemplate::New(New));
 			tmpl->SetClassName(String::NewSymbol("Fiber"));
 
+			// Guard which only allows these methods to be called on a fiber; prevents
+			// `fiber.run.call({})` from seg faulting.
 			Handle<Signature> sig = Signature::New(tmpl);
 			tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
+			// Fiber.prototype
 			Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
 			proto->Set(String::NewSymbol("reset"),
 				FunctionTemplate::New(Reset, Handle<Value>(), sig));
@@ -469,11 +473,19 @@ class Fiber {
 				FunctionTemplate::New(ThrowInto, Handle<Value>(), sig));
 			proto->SetAccessor(String::NewSymbol("started"), GetStarted);
 
+			// Global yield() function
+			Handle<Function> yield = FunctionTemplate::New(Yield)->GetFunction();
+			Handle<String> sym_yield = String::NewSymbol("yield");
+			target->Set(sym_yield, yield);
+
+			// Fiber properties
 			Handle<Function> fn = tmpl->GetFunction();
 			sym_current = Persistent<String>::New(String::NewSymbol("current"));
 			fn->Set(sym_current, Undefined());
+			fn->Set(sym_yield, yield);
+
+			// Global Fiber
 			target->Set(String::NewSymbol("Fiber"), fn);
-			target->Set(String::NewSymbol("yield"), FunctionTemplate::New(Yield)->GetFunction());
 			fiber_object = Persistent<Function>::New(fn);
 		}
 };

@@ -233,10 +233,15 @@ Fiber's definition looks something like this:
 	 * Note that this function is a global to allow for correct garbage
 	 * collection. This results in no loss of functionality because it is only
 	 * valid to yield from the currently running fiber anyway.
+	 *
+	 * Note also that `yield` is a reserved word in Javascript. This is normally
+	 * not an issue, however if using strict mode you will not be able to call
+	 * yield() globally. Instead call `Fiber.yield()`.
 	 */
 	function yield(param) {
 		[native code]
 	}
+	Fiber.yield = yield;
 
 	/**
 	 * run() will start execution of this Fiber, or if it is currently yielding,
