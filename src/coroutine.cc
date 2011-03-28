@@ -194,20 +194,32 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 }
 
 void Coroutine::run() {
+	// memoize `thread`, as `this` might be deleted before this function returns (perhaps in a
+	// different stack.
+	Thread& thread = this->thread;
 	Coroutine& current = *thread.current_fiber;
+
+	assert(!thread.delete_me);
 	assert(&current != this);
-	if (thread.delete_me) {
-		assert(this != thread.delete_me);
-		assert(&current != thread.delete_me);
-		delete thread.delete_me;
-		thread.delete_me = NULL;
-	}
+
 	thread.current_fiber = this;
 	swapcontext(&current.context, &context);
+
+	if (thread.delete_me) {
+		// This means finish() was called on the coroutine and the pool was full so this coroutine needs
+		// to be deleted. We can't delete from inside finish(), because that would deallocate the
+		// current stack. However we CAN delete here, we just have to be very careful.
+		assert(thread.delete_me == this);
+		assert(&current != this);
+		thread.delete_me = NULL;
+		delete this;
+	}
 }
 
 void Coroutine::finish(Coroutine& next) {
-	this->thread.fiber_did_finish(*this);
+	assert(&next != this);
+	assert(thread.current_fiber == this);
+	thread.fiber_did_finish(*this);
 	thread.current_fiber = &next;
 	swapcontext(&context, &next.context);
 }
