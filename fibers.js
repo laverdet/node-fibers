@@ -1,4 +1,4 @@
-var fs = require('fs');
+var fs = require('fs'), path = require('path');
 
 if (fs.statSync(process.execPath).mtime >
 		fs.statSync(require.resolve('./src/fibers')).mtime) {
@@ -18,3 +18,26 @@ if (fs.statSync(process.execPath).mtime >
 }
 
 require('./src/fibers');
+
+// Shim child_process.spawn to shim any spawned Node instances
+var fibersRoot = path.dirname(require.resolve('./src/fibers'));
+var cp = require('child_process');
+cp.spawn = function(spawn) {
+	return function(command, args, options) {
+		if (command === process.execPath) {
+			options = Object.create(options || {});
+			options.env = Object.create(options.env || {});
+			options.env.FIBER_SHIM = '1';
+			if (process.platform === 'linux2') {
+				options.env.LD_PRELOAD = fibersRoot + '/coroutine.so';
+			} else if (process.platform === 'darwin') {
+				options.env.DYLD_INSERT_LIBRARIES = fibersRoot + '/coroutine.dylib';
+				options.env.DYLD_FORCE_FLAT_NAMESPACE = '1';
+				options.env.DYLD_LIBRARY_PATH = fibersRoot;
+			} else {
+				throw new Error('Unknown platform!');
+			}
+		}
+		return spawn(command, args, options);
+	};
+}(cp.spawn);
