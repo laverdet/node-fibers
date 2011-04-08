@@ -28,7 +28,7 @@ cp.spawn = function(spawn) {
 			options = Object.create(options || {});
 			options.env = Object.create(options.env || {});
 			options.env.FIBER_SHIM = '1';
-			if (process.platform === 'linux2') {
+			if (~process.platform.indexOf('linux')) {
 				options.env.LD_PRELOAD = fibersRoot + '/coroutine.so';
 			} else if (process.platform === 'darwin') {
 				options.env.DYLD_INSERT_LIBRARIES = fibersRoot + '/coroutine.dylib';
