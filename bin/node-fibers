@@ -12,7 +12,7 @@ if [[ -e $(dirname "$0")/../src/fibers.node ]]; then
 else
 	# in npm
 	# node 4.x has a bug causing a broken pipe error here
-	FIBERS_ROOT=$(dirname $(echo "console.log(require.resolve('fibers'));" | $NODE | head -n1 | sed 's/> //'))/src
+	FIBERS_ROOT=$(dirname $(echo "console.log(require.resolve('fibers'));" | $NODE 2>/dev/null | head -n1 | sed 's/> //'))/src
 	if [[ ! -e "$FIBERS_ROOT/fibers.node" ]]; then
 		echo "Could not find the coroutine shim!" 1>&2
 		exit 1
