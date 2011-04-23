@@ -4,9 +4,29 @@ fibers(1) -- Fiber support for v8 and Node
 INSTALLING
 ----------
 
-To install node-fibers:
+Installation of `node-fibers` depends on which version of `npm` you have
+installed.
 
-	npm install fibers
+To install with **npm<1.0**:
+
+* `npm install fibers`
+* Ensure `node-fibers` can be found in your $PATH (this should be true unless
+	you symlinked `node` somewhere).
+
+To install with **npm>=1.0**:
+
+* `npm install -g fibers`
+* Ensure `node-fibers` can be found in your $PATH (this should be true unless
+	you symlinked `node` somewhere).
+* Ensure the global `node_modules` directory is in your $NODE_PATH. You should
+	have done this when you installed `npm`, but many don't. If this is too hard
+	you can also just do this: ``NODE_ROOT=$(dirname $(dirname $(which node)));
+	[[ $NODE_ROOT ]] && ln -s $NODE_ROOT/lib/node_modules/fibers
+	$NODE_ROOT/lib/node/``
+
+To install **without npm**:
+
+* ``make; NODE_PATH=`pwd```
 
 Only Linux and OS X environments are supported. Windows support is theoretically
 possible, but not planned.
@@ -128,7 +148,10 @@ functions:
 	var print = require('util').print;
 
 	// This function runs an asynchronous function from within a fiber as if it
-	// were synchronous.
+	// were synchronous. Note that this is just a proof of concept and you should
+	// come up with a more robust solution in your application. fs.readFile and
+	// fs.writeFile have unreliable `length` properties, therefore this method
+	// will fail for those functions.
 	function asyncAsSync(fn /* ... */) {
 		var args = [].slice.call(arguments, 1);
 		var fiber = Fiber.current;
