@@ -17,25 +17,34 @@ if (fs.statSync(process.execPath).mtime >
 		'You will not be able to use Fiber without this support enabled.');
 }
 
+// Injects `Fiber` and `yield` in to global
 require('./src/fibers');
 
-// Shim child_process.spawn to shim any spawned Node instances
-var fibersRoot = path.dirname(require.resolve('./src/fibers'));
+// Clean up node-fibers environment mess
+var fibersEnv = {};
+for (var ii in {
+	FIBER_SHIM: 1,
+	LD_PRELOAD: 1,
+	DYLD_INSERT_LIBRARIES: 1,
+	DYLD_FORCE_FLAT_NAMESPACE: 1,
+	DYLD_LIBRARY_PATH: 1,
+}) {
+	if (ii in process.env) {
+		fibersEnv[ii] = process.env[ii];
+		delete process.env[ii];
+	}
+}
+
+// Shim child_process.spawn to reshim any spawned Node processes
 var cp = require('child_process');
 cp.spawn = function(spawn) {
 	return function(command, args, options) {
 		if (command === process.execPath) {
+			// Reshim the node process
 			options = Object.create(options || {});
-			options.env = Object.create(options.env || {});
-			options.env.FIBER_SHIM = '1';
-			if (process.platform === 'linux2') {
-				options.env.LD_PRELOAD = fibersRoot + '/coroutine.so';
-			} else if (process.platform === 'darwin') {
-				options.env.DYLD_INSERT_LIBRARIES = fibersRoot + '/coroutine.dylib';
-				options.env.DYLD_FORCE_FLAT_NAMESPACE = '1';
-				options.env.DYLD_LIBRARY_PATH = fibersRoot;
-			} else {
-				throw new Error('Unknown platform!');
+			options.env = Object.create(options.env || process.env);
+			for (var ii in fibersEnv) {
+				options.env[ii] = fibersEnv[ii];
 			}
 		}
 		return spawn(command, args, options);

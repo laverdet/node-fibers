@@ -302,11 +302,6 @@ class Loader {
 				current.set_specific(tmp, pthread_early_vals[ii]);
 			}
 		}
-
-		// Undo fiber-shim so that child processes don't get shimmed as well. This also seems to prevent
-		// this library from being loaded multiple times.
-		setenv("DYLD_INSERT_LIBRARIES", "", 1);
-		setenv("LD_PRELOAD", "", 1);
 	}
 };
 Loader loader;
