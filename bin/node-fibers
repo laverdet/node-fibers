@@ -23,13 +23,13 @@ UNAME=$(uname)
 if [[ "$UNAME" == "Linux" ]]; then
 	FIBER_SHIM=1 \
 	LD_PRELOAD="$FIBERS_ROOT/coroutine.so" \
-	$NODE "$@"
+	exec $NODE "$@"
 elif [[ "$UNAME" == "Darwin" ]]; then
 	FIBER_SHIM=1 \
 	DYLD_INSERT_LIBRARIES="$FIBERS_ROOT/coroutine.dylib" \
 	DYLD_FORCE_FLAT_NAMESPACE=1 \
 	DYLD_LIBRARY_PATH="$FIBERS_ROOT" \
-	$NODE "$@"
+	exec $NODE "$@"
 else
 	echo "This OS is not supported."
 	exit 1
