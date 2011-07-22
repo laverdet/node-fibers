@@ -31,22 +31,36 @@ static int (*o_pthread_setspecific)(pthread_key_t, const void*);
 /**
  * Very early on when this library is loaded there are callers to pthread_key_create,
  * pthread_getspecific, and pthread_setspecific. We normally could pass these calls through down to
- * the original implementation but that doesn't work because dlsym() tries to get a lock which ends
- * up calling pthread_getspecific and pthread_setspecific. So have to implement our own versions of
- * these functions assuming one thread only and then as soon as we can, put all that saved data into
- * a better structure.
+ * the original implementation but that doesn't work because dlsym() tries to get a lock which may
+ * end up calling pthread_key_create, pthread_getspecific, or pthread_setspecific. So we have to
+ * implement our own versions of these functions assuming one thread only and then as soon as we
+ * can, put all that saved data into a better structure.
  *
- * If there are keys reserved that are lower than `thread_key` we always pass those through to the
- * underlying implementation.
+ * Also sometimes the early calls to pthread_getspecific and pthread_setspecific are made with keys
+ * that this library didn't even get to hook, so it has to handle those cases.
+ *
+ * So if there are keys reserved that are lower than `thread_key` or higher than `FAKE_KEY_START`
+ * we store that in static (process-local) structures until initialization is complete, and then
+ * we always pass those through to the underlying implementation.
+ *
+ * Most of this behavior is observable only on OS X. The Linux workflow is actually quite
+ * straightforward.
  *
  * This code assumes the underlying pthread library uses increasing TLS keys, while remaining
- * under a constant number of them. These are both not safe assumptions since pthread_t is
+ * under a constant number of them. These are both not safe assumptions since pthread_key_t is
  * technically opaque.
  */
+
+// Stores thread-specifics for keys which were created before the library hooked.
 static const size_t MAX_EARLY_KEYS = 500;
-static void* pthread_early_vals[500] = { NULL };
-static pthread_dtor_t pthread_early_dtors[500] = { NULL };
-static pthread_key_t prev_synthetic_key = 0;
+static void* pthread_early_vals[MAX_EARLY_KEYS] = { NULL };
+
+// Stores thread-specifics for keys created by this library
+static const size_t FAKE_KEY_START = MAX_EARLY_KEYS;
+static pthread_dtor_t pthread_fake_dtors[MAX_EARLY_KEYS] = { NULL };
+static void* pthread_fake_vals[MAX_EARLY_KEYS] = { NULL };
+static pthread_key_t prev_fake_key = 0;
+
 static bool did_hook_pthreads = false;
 static pthread_key_t thread_key;
 
@@ -250,16 +264,15 @@ class Loader {
 	public:
 	static bool hooks_ready;
 	static bool initialized;
+
 	/**
-	 * As soon as this library resolves the symbols for pthread_* it will start getting calls.
-	 * Unfortunately this happens before malloc is loaded, and it also happens before this library's
-	 * static initialization has occurred. This function bootstraps the library enough with primordial
-	 * data structures until we can finish in Loader().
+	 * Final initialization of this library. By the time we make it here malloc is ready. Also it's
+	 * likely the TLS functions have been called, so we need to put the data from the primordial TLS
+	 * storage into real FLS.
 	 */
-	static void bootstrap() {
-		if (hooks_ready) {
-			return;
-		}
+	Loader() {
+		// Get handles to original pthread functions. Note that dlsym will call the hooked functions
+		// below.
 		o_pthread_create = (int(*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*))dlsym(RTLD_NEXT, "pthread_create");
 		o_pthread_key_create = (int(*)(pthread_key_t*, pthread_dtor_t))dlsym(RTLD_NEXT, "pthread_key_create");
 		o_pthread_key_delete = (int(*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
@@ -269,37 +282,28 @@ class Loader {
 		o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
 		o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
 
+		// Put data from primordial structures into actual TLS
 		o_pthread_key_create(&thread_key, Thread::free);
-		prev_synthetic_key = thread_key;
 		for (size_t ii = 0; ii < thread_key; ++ii) {
 			if (pthread_early_vals[ii]) {
 				o_pthread_setspecific(ii, pthread_early_vals[ii]);
 			}
 		}
 		hooks_ready = true;
-	}
-
-	/**
-	 * Final initialization of this library. By the time we make it here malloc is ready. Also it's
-	 * likely the TLS functions have been called, so we need to put the data from the primordial TLS
-	 * storage into real FLS.
-	 */
-	Loader() {
-		Loader::bootstrap();
 
 		// Create a real TLS key to store the handle to Thread.
 		Thread* thread = new Thread;
 		thread->handle = o_pthread_self();
 		o_pthread_setspecific(thread_key, thread);
+		initialized = true;
 
 		// Put all the data from the fake pthread_setspecific into FLS
-		initialized = true;
 		Coroutine& current = Coroutine::current();
-		for (size_t ii = thread_key + 1; ii <= prev_synthetic_key; ++ii) {
-			pthread_key_t tmp = thread->key_create(pthread_early_dtors[ii]);
-			assert(tmp == ii - thread_key - 1);
-			if (pthread_early_vals[ii]) {
-				current.set_specific(tmp, pthread_early_vals[ii]);
+		for (size_t ii = 0; ii < prev_fake_key; ++ii) {
+			pthread_key_t tmp = thread->key_create(pthread_fake_dtors[ii]);
+			assert(tmp == ii);
+			if (pthread_fake_vals[ii]) {
+				current.set_specific(tmp, pthread_fake_vals[ii]);
 			}
 		}
 	}
@@ -315,44 +319,48 @@ bool Loader::initialized = false;
 // Note well that in the `!initialized` case there is no heap. Calls to malloc, etc will crash your
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
-	if (!Loader::hooks_ready) {
-		return pthread_early_vals[key];
-	} else if (thread_key >= key) {
+	if (Loader::hooks_ready && key < FAKE_KEY_START) {
 		return o_pthread_getspecific(key);
-	} else if (!Loader::initialized) {
-		return pthread_early_vals[key];
+	} else if (!Loader::hooks_ready) {
+		if (key < FAKE_KEY_START) {
+			return pthread_early_vals[key];
+		} else {
+			return pthread_fake_vals[key - FAKE_KEY_START];
+		}
 	} else {
-		return Coroutine::current().get_specific(key - thread_key - 1);
+		assert(Loader::initialized);
+		return Coroutine::current().get_specific(key - FAKE_KEY_START);
 	}
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
-	if (!Loader::hooks_ready) {
-		pthread_early_vals[key] = (void*)data;
-		return 0;
-	} else if (thread_key >= key) {
+	if (Loader::hooks_ready && key < FAKE_KEY_START) {
 		return o_pthread_setspecific(key, data);
-	} else if (!Loader::initialized) {
-		pthread_early_vals[key] = (void*)data;
+	} else if (!Loader::hooks_ready) {
+		if (key < FAKE_KEY_START) {
+			pthread_early_vals[key] = (void*)data;
+		} else {
+			pthread_fake_vals[key - FAKE_KEY_START] = (void*)data;
+		}
 		return 0;
 	} else {
-		Coroutine::current().set_specific(key - thread_key - 1, data);
+		assert(Loader::initialized);
+		Coroutine::current().set_specific(key - FAKE_KEY_START, data);
 		return 0;
 	}
 }
 
 int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
-	Loader::bootstrap();
 	did_hook_pthreads = true;
-	if (Loader::initialized) {
-		*key = Thread::current()->key_create(dtor) + thread_key + 1;
-		return 0;
+	if (!Loader::hooks_ready) {
+		*key = prev_fake_key++ + FAKE_KEY_START;
+		pthread_fake_dtors[*key - FAKE_KEY_START] = dtor;
+		assert(prev_fake_key < MAX_EARLY_KEYS);
 	} else {
-		*key = ++prev_synthetic_key;
-		pthread_early_dtors[*key] = dtor;
-		assert(prev_synthetic_key < MAX_EARLY_KEYS);
-		return 0;
+		assert(Loader::initialized);
+		*key = Thread::current()->key_create(dtor) + FAKE_KEY_START;
 	}
+	return 0;
 }
 
 /**
