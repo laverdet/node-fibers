@@ -51,18 +51,29 @@ static int (*o_pthread_setspecific)(pthread_key_t, const void*);
  * technically opaque.
  */
 
+/**
+ * Three types of keys this library must handle:
+ * - keys created before hooks were registered. pthread_key_create was called before we had the
+ *   chance to hook. [[early]]
+ * - keys created after the library has hooked pthread_* functions, but before we can get handles
+ *   to the original functions [[fake]]
+ * - keys created after the library fully loaded [[hooked]]
+ */
+
 // Stores thread-specifics for keys which were created before the library hooked.
 static const size_t MAX_EARLY_KEYS = 500;
 static void* pthread_early_vals[MAX_EARLY_KEYS] = { NULL };
 
-// Stores thread-specifics for keys created by this library
-static const size_t FAKE_KEY_START = MAX_EARLY_KEYS;
+// Stores thread-specifics for keys created before this library can get handles to the original
+// pthread_* functions.
+static const size_t FAKE_KEY_START = 1000;
 static pthread_dtor_t pthread_fake_dtors[MAX_EARLY_KEYS] = { NULL };
 static void* pthread_fake_vals[MAX_EARLY_KEYS] = { NULL };
 static pthread_key_t prev_fake_key = 0;
 
 static bool did_hook_pthreads = false;
 static pthread_key_t thread_key;
+static pthread_key_t hooked_key_offset = 0;
 
 /**
  * Boing
@@ -262,7 +273,6 @@ void Coroutine::set_specific(pthread_key_t key, const void* data) {
 
 class Loader {
 	public:
-	static bool hooks_ready;
 	static bool initialized;
 
 	/**
@@ -282,14 +292,13 @@ class Loader {
 		o_pthread_self = (pthread_t(*)(void))dlsym(RTLD_NEXT, "pthread_self");
 		o_pthread_setspecific = (int(*)(pthread_key_t, const void*))dlsym(RTLD_NEXT, "pthread_setspecific");
 
-		// Put data from primordial structures into actual TLS
+		// Put early keys from primordial structure into actual TLS
 		o_pthread_key_create(&thread_key, Thread::free);
 		for (size_t ii = 0; ii < thread_key; ++ii) {
 			if (pthread_early_vals[ii]) {
 				o_pthread_setspecific(ii, pthread_early_vals[ii]);
 			}
 		}
-		hooks_ready = true;
 
 		// Create a real TLS key to store the handle to Thread.
 		Thread* thread = new Thread;
@@ -298,18 +307,17 @@ class Loader {
 		initialized = true;
 
 		// Put all the data from the fake pthread_setspecific into FLS
-		Coroutine& current = Coroutine::current();
+		hooked_key_offset = thread_key + 1;
 		for (size_t ii = 0; ii < prev_fake_key; ++ii) {
-			pthread_key_t tmp = thread->key_create(pthread_fake_dtors[ii]);
-			assert(tmp == ii);
+			pthread_key_t key;
+			pthread_key_create(&key, pthread_fake_dtors[ii]); // registers FLS too
 			if (pthread_fake_vals[ii]) {
-				current.set_specific(tmp, pthread_fake_vals[ii]);
+				Coroutine::current().set_specific(ii, pthread_fake_vals[ii]);
 			}
 		}
 	}
 };
 Loader loader;
-bool Loader::hooks_ready = false;
 bool Loader::initialized = false;
 
 /**
@@ -319,46 +327,54 @@ bool Loader::initialized = false;
 // Note well that in the `!initialized` case there is no heap. Calls to malloc, etc will crash your
 // shit.
 void* pthread_getspecific(pthread_key_t key) {
-	if (Loader::hooks_ready && key < FAKE_KEY_START) {
-		return o_pthread_getspecific(key);
-	} else if (!Loader::hooks_ready) {
+	if (Loader::initialized) {
+		if (key < thread_key) {
+			return o_pthread_getspecific(key);
+		} else if (key >= FAKE_KEY_START) {
+			return Coroutine::current().get_specific(key - FAKE_KEY_START);
+		} else {
+			return Coroutine::current().get_specific(key - hooked_key_offset);
+		}
+	} else {
 		if (key < FAKE_KEY_START) {
 			return pthread_early_vals[key];
 		} else {
 			return pthread_fake_vals[key - FAKE_KEY_START];
 		}
-	} else {
-		assert(Loader::initialized);
-		return Coroutine::current().get_specific(key - FAKE_KEY_START);
 	}
 }
 
 int pthread_setspecific(pthread_key_t key, const void* data) {
-	if (Loader::hooks_ready && key < FAKE_KEY_START) {
-		return o_pthread_setspecific(key, data);
-	} else if (!Loader::hooks_ready) {
+	if (Loader::initialized) {
+		if (key < thread_key) {
+			return o_pthread_setspecific(key, data);
+		} else if (key >= FAKE_KEY_START) {
+			Coroutine::current().set_specific(key - FAKE_KEY_START, data);
+		} else {
+			Coroutine::current().set_specific(key - hooked_key_offset, data);
+			// Also set this in TLS because v8 uses direct TLS access in some cases (isolates). This means
+			// isolates may be wonky within a coroutine but that hasn't come up yet.
+			o_pthread_setspecific(key, data);
+		}
+	} else {
 		if (key < FAKE_KEY_START) {
 			pthread_early_vals[key] = (void*)data;
 		} else {
 			pthread_fake_vals[key - FAKE_KEY_START] = (void*)data;
 		}
-		return 0;
-	} else {
-		assert(Loader::initialized);
-		Coroutine::current().set_specific(key - FAKE_KEY_START, data);
-		return 0;
 	}
+	return 0;
 }
 
 int pthread_key_create(pthread_key_t* key, pthread_dtor_t dtor) {
 	did_hook_pthreads = true;
-	if (!Loader::hooks_ready) {
+	if (!Loader::initialized) {
 		*key = prev_fake_key++ + FAKE_KEY_START;
 		pthread_fake_dtors[*key - FAKE_KEY_START] = dtor;
 		assert(prev_fake_key < MAX_EARLY_KEYS);
 	} else {
-		assert(Loader::initialized);
-		*key = Thread::current()->key_create(dtor) + FAKE_KEY_START;
+		o_pthread_key_create(key, dtor);
+		assert(*key - thread_key == Thread::current()->key_create(dtor) + 1);
 	}
 	return 0;
 }
