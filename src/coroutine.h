@@ -1,11 +1,7 @@
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE
-#endif
-
 #include <stdlib.h>
-#include <ucontext.h>
 #include <ext/pool_allocator.h>
 #include <vector>
+#include "libcoro/coro.h"
 
 class Coroutine {
 	public:
@@ -17,15 +13,15 @@ class Coroutine {
 		// around that, as there is no constructor.
 		struct char_noinit { char x; };
 		class Thread& thread;
-		ucontext_t context;
+		coro_context context;
 		std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
 		std::vector<void*> fls_data;
 		entry_t* entry;
 		void* arg;
 		static size_t stack_size;
 
-		static void trampoline(Coroutine& that);
-		~Coroutine() {}
+		static void trampoline(void* that);
+		~Coroutine();
 
 		/**
 		 * Constructor for currently running "fiber". This is really just original thread, but we

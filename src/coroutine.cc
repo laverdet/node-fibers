@@ -3,7 +3,6 @@
 #define __GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
-#include <ucontext.h>
 
 #include <stdexcept>
 #include <stack>
@@ -176,9 +175,9 @@ vector<pthread_dtor_t> Thread::dtors;
  * Coroutine class definition
  */
 size_t Coroutine::stack_size = 0;
-void Coroutine::trampoline(Coroutine &that) {
+void Coroutine::trampoline(void* that) {
 	while (true) {
-		that.entry(const_cast<void*>(that.arg));
+		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
 }
 
@@ -202,10 +201,11 @@ Coroutine::Coroutine(Thread& t, entry_t& entry, void* arg) :
 	stack(stack_size),
 	entry(entry),
 	arg(arg) {
-	getcontext(&context);
-	context.uc_stack.ss_size = stack_size;
-	context.uc_stack.ss_sp = &stack[0];
-	makecontext(&context, (void(*)(void))trampoline, 1, this);
+	coro_create(&context, trampoline, this, &stack[0], stack_size);
+}
+
+Coroutine::~Coroutine() {
+	coro_destroy(&context);
 }
 
 Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
@@ -228,7 +228,7 @@ void Coroutine::run() {
 	assert(&current != this);
 
 	thread.current_fiber = this;
-	swapcontext(&current.context, &context);
+	coro_transfer(&current.context, &context);
 
 	if (thread.delete_me) {
 		// This means finish() was called on the coroutine and the pool was full so this coroutine needs
@@ -246,7 +246,7 @@ void Coroutine::finish(Coroutine& next) {
 	assert(thread.current_fiber == this);
 	thread.fiber_did_finish(*this);
 	thread.current_fiber = &next;
-	swapcontext(&context, &next.context);
+	coro_transfer(&context, &next.context);
 }
 
 void* Coroutine::bottom() const {
@@ -423,8 +423,9 @@ int pthread_equal(pthread_t left, pthread_t right) {
 }
 #endif
 
-int pthread_join(pthread_t thread, void** retval) {
+int pthread_join(void* thread, void** retval) {
 	assert(Loader::initialized);
+	cout <<(void*)thread <<"\n";
 	// pthread_join should return EDEADLK if you try to join with yourself..
 	return pthread_join(reinterpret_cast<Thread*>(thread)->handle, retval);
 }
