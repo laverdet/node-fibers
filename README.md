@@ -4,29 +4,23 @@ fibers(1) -- Fiber support for v8 and Node
 INSTALLING
 ----------
 
-Installation of `node-fibers` depends on which version of `npm` you have
-installed.
-
-To install with **npm<1.0**:
-
-* `npm install fibers`
-* Ensure `node-fibers` can be found in your $PATH (this should be true unless
-	you symlinked `node` somewhere).
+To install `node-fibers` just use `npm`. It's recommended that you install
+`node-fibers` globally, as it includes a wrapper script which you must run in
+lieu of `node`.
 
 To install with **npm>=1.0**:
 
 * `npm install -g fibers`
 * Ensure `node-fibers` can be found in your $PATH (this should be true unless
 	you symlinked `node` somewhere).
-* Ensure the global `node_modules` directory is in your $NODE_PATH. You should
-	have done this when you installed `npm`, but many don't. If this is too hard
-	you can also just do this: ``NODE_ROOT=$(dirname $(dirname $(which node)));
-	[[ $NODE_ROOT ]] && ln -s $NODE_ROOT/lib/node_modules/fibers
-	$NODE_ROOT/lib/node/``
+* Ensure the global `node_modules` directory is in your $NODE_PATH. You might
+	have done this when you installed `npm`, but probably didn't. If this is too
+	hard you can also just do this:
+	``NODE_ROOT=$(dirname $(dirname $(which node))); [[ $NODE_ROOT ]] && ln -s $NODE_ROOT/lib/node_modules/fibers $NODE_ROOT/lib/node/``
 
 To install **without npm**:
 
-* ``make; NODE_PATH=`pwd```
+* `make`
 
 Only Linux and OS X environments are supported. Windows support is theoretically
 possible, but not planned.
@@ -42,6 +36,10 @@ fiber support.
 
 EXAMPLES
 --------
+
+The examples below describe basic use of `Fiber`, but note that it is **not
+recommended** to use `Fiber` without an abstraction in between your code and
+fibers. See "FUTURES" below for additional information.
 
 This is a quick example of how you can write sleep() with fibers. Note that
 while the sleep() call is blocking inside the fiber, node is able to handle
@@ -73,7 +71,8 @@ other events.
 
 
 Yielding execution will resume back in the fiber right where you left off. You
-can also pass values back and forth through yield() and run().
+can also pass values back and forth through yield() and run(). Again, the node
+event loop is never blocked while this script is running.
 
 	$ cat generator.js
 	require('fibers');
@@ -140,86 +139,106 @@ boundaries:
 	done!
 
 
-You can use fibers to provide synchronous adapters on top of asynchronous
-functions:
+FUTURES
+-------
 
-	$ cat adapter.js
-	require('fibers');
-	var print = require('util').print;
+Using the `Fiber` class without an abstraction in between your code and the raw
+API is **not recommended**. `Fiber` is meant to implement the smallest amount of
+functionality in order make possible many different programming patterns. This
+makes the `Fiber` class relatively lousy to work with directly, but extremely
+powerful when coupled with a decent abstraction. There is no right answer for
+which abstraction is right for you and your project. Included with `node-fibers`
+is an implementation of "futures" which is fiber-aware.  Usage of this library
+is documented below. Other externally-maintained options include
+[0ctave/node-sync](https://github.com/0ctave/node-sync) and
+[lm1/node-fibers-promise](https://github.com/lm1/node-fibers-promise). However
+you **should** feel encouraged to be creative with fibers and build a solution
+which works well with your project.
 
-	// This function runs an asynchronous function from within a fiber as if it
-	// were synchronous. Note that this is just a proof of concept and you should
-	// come up with a more robust solution in your application. fs.readFile and
-	// fs.writeFile have unreliable `length` properties, therefore this method
-	// will fail for those functions.
-	function asyncAsSync(fn /* ... */) {
-		var args = [].slice.call(arguments, 1);
-		var fiber = Fiber.current;
+Using `Future` to wrap existing node functions. At no point is the node event
+loop blocked:
 
-		function cb(err, ret) {
-			if (err) {
-				fiber.throwInto(new Error(err));
-			} else {
-				fiber.run(ret);
-			}
+	$ cat ls.js
+	var Future = require('fibers/future'), wait = Future.wait;
+	var fs = require('fs');
+
+	// This wraps existing functions assuming the last argument of the passed
+	// function is a callback. The new functions created immediately return a
+	// future and the future will resolve when the callback is called (which
+	// happens behind the scenes).
+	var readdir = Future.wrap(fs.readdir);
+	var stat = Future.wrap(fs.stat);
+
+	Fiber(function() {
+		// Get a list of files in the directory
+		var fileNames = readdir('.').wait();
+		console.log('Found '+ fileNames.length+ ' files');
+
+		// Stat each file
+		var stats = [];
+		for (var ii = 0; ii < fileNames.length; ++ii) {
+			stats.push(stat(fileNames[ii]));
 		}
+		wait(stats);
 
-		// Little-known JS features: a function's `length` property is the number
-		// of arguments it takes. Node convention is that the last parameter to
-		// most asynchronous is a `function callback(err, ret) {}`.
-		args[fn.length - 1] = cb;
-		fn.apply(null, args);
+		// Print file size
+		for (var ii = 0; ii < fileNames.length; ++ii) {
+			console.log(fileNames[ii]+ ': '+ stats[ii].get().size);
+		}
+	}).run();
 
-		return yield();
+	$ node-fibers ls.js 
+	Found 11 files
+	bin: 4096
+	fibers.js: 1708
+	.gitignore: 37
+	README.md: 8664
+	future.js: 5833
+	.git: 4096
+	LICENSE: 1054
+	src: 4096
+	ls.js: 860
+	Makefile: 436
+	package.json: 684
+
+
+The future API is designed to make it easy to move between classic
+callback-style code and fiber-aware waiting code:
+
+	$ cat sleep.js
+	var Future = require('fibers/future'), wait = Future.wait;
+
+	// This function returns a future which resolves after a timeout. This
+	// demonstrates manually resolving futures.
+	function sleep(ms) {
+		var future = new Future;
+		setTimeout(function() {
+			future.return();
+		}, ms);
+		return future;
 	}
 
-	var fs = require('fs');
-	var Buffer = require('buffer').Buffer;
-	Fiber(function() {
-		// These are all async functions (fs.open, fs.write, fs.close) but we can
-		// use them as if they're synchronous.
-		print('opening /tmp/hello\n');
-		var file = asyncAsSync(fs.open, '/tmp/hello', 'w');
-		var buffer = new Buffer(5);
-		buffer.write('hello');
-		print('writing to file\n');
-		asyncAsSync(fs.write, file, buffer, 0, buffer.length);
-		print('closing file\n');
-		asyncAsSync(fs.close, file);
+	// You can create functions which automatically run in their own fiber and
+	// return futures that resolve when the fiber returns (this probably sounds
+	// confusing.. just play with it to understand).
+	var calcTimerDelta = function(ms) {
+		var start = new Date;
+		sleep(ms).wait();
+		return new Date - start;
+	}.future(); // <-- important!
 
-		// This is a synchronous function. But note that while this function is
-		// running node is totally blocking. Using `asyncAsSync` leaves node
-		// available to handle more events.
-		var data = fs.readFileSync('/tmp/hello');
-		print('file contents: ' +data +'\n');
+	// And futures also include node-friendly callbacks if you don't want to use
+	// wait()
+	calcTimerDelta(2000).resolve(function(err, val) {
+		console.log('Set timer for 2000ms, waited '+ val+ 'ms');
+	});
 
-		// Errors made simple using the magic of exceptions
-		try {
-			print('deleting /tmp/hello2\n');
-			asyncAsSync(fs.unlink, '/tmp/hello2');
-		} catch(e) {
-			print('caught this exception: ' +e.message +'\n');
-		}
-
-		// Cleanup :)
-		print('deleting /tmp/hello\n');
-		asyncAsSync(fs.unlink, '/tmp/hello');
-	}).run();
-	print('returning control to node event loop\n');
-
-	$ node-fibers adapter.js
-	opening /tmp/hello
-	returning control to node event loop
-	writing to file
-	closing file
-	file contents: hello
-	deleting /tmp/hello2
-	caught this exception: Error: ENOENT, No such file or directory '/tmp/hello2'
-	deleting /tmp/hello
+	$ node-fibers sleep.js
+	Set timer for 2000ms, waited 2009ms
 
 
-DOCUMENTATION
--------------
+API DOCUMENTATION
+-----------------
 Fiber's definition looks something like this:
 
 	/**
