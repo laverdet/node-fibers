@@ -1,8 +1,9 @@
 {
 	"name": "fibers",
-	"version": "0.2.6",
+	"version": "0.5.0",
 	"description": "Cooperative multi-tasking for Javascript; or, the closest thing to a thread you'll see in node",
-	"keywords": ["fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker"],
+	"keywords": [
+		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
 	"homepage": "https://github.com/laverdet/node-fibers",
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
