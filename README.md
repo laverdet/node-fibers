@@ -41,13 +41,13 @@ The examples below describe basic use of `Fiber`, but note that it is **not
 recommended** to use `Fiber` without an abstraction in between your code and
 fibers. See "FUTURES" below for additional information.
 
+### Sleep
 This is a quick example of how you can write sleep() with fibers. Note that
 while the sleep() call is blocking inside the fiber, node is able to handle
 other events.
 
 	$ cat sleep.js
 	require('fibers');
-	var print = require('util').print;
 
 	function sleep(ms) {
 		var fiber = Fiber.current;
@@ -58,11 +58,11 @@ other events.
 	}
 
 	Fiber(function() {
-		print('wait... ' + new Date + '\n');
+		console.log('wait... ' + new Date);
 		sleep(1000);
-		print('ok... ' + new Date + '\n');
+		console.log('ok... ' + new Date);
 	}).run();
-	print('back in main\n');
+	console.log('back in main');
 
 	$ node-fibers sleep.js
 	wait... Fri Jan 21 2011 22:42:04 GMT+0900 (JST)
@@ -70,13 +70,13 @@ other events.
 	ok... Fri Jan 21 2011 22:42:05 GMT+0900 (JST)
 
 
+### Incremental Generator
 Yielding execution will resume back in the fiber right where you left off. You
 can also pass values back and forth through yield() and run(). Again, the node
 event loop is never blocked while this script is running.
 
 	$ cat generator.js
 	require('fibers');
-	var print = require('util').print;
 
 	var inc = Fiber(function(start) {
 		var total = start;
@@ -86,7 +86,7 @@ event loop is never blocked while this script is running.
 	});
 
 	for (var ii = inc.run(1); ii <= 10; ii = inc.run(1)) {
-		print(ii + '\n');
+		console.log(ii);
 	}
 
 	$ node-fibers generator.js
@@ -102,19 +102,74 @@ event loop is never blocked while this script is running.
 	10
 
 
+### Fibonacci Generator
+Expanding on the incremental generator above, we can create a generator which
+returns a new Fibonacci number with each invocation. You can compare this with
+the [ECMAScript Harmony
+Generator](http://wiki.ecmascript.org/doku.php?id=harmony:generators) Fibonacci
+example.
+
+	$ cat fibonacci.js
+	require('fibers');
+
+	// Generator function. Returns a function which returns incrementing
+	// Fibonacci numbers with each call.
+	function Fibonacci() {
+		// Create a new fiber which yields sequential Fibonacci numbers
+		var fiber = Fiber(function() {
+			yield(0); // F(0) -> 0
+			var prev = 0, curr = 1;
+			while (true) {
+				yield(curr);
+				var tmp = prev + curr;
+				prev = curr;
+				curr = tmp;
+			}
+		});
+		// Return a bound handle to `run` on this fiber
+		return fiber.run.bind(fiber);
+	}
+
+	// Initialize a new Fibonacci sequence and iterate up to 1597
+	var seq = Fibonacci();
+	for (var ii = seq(); ii <= 1597; ii = seq()) {
+		console.log(ii);
+	}
+
+	$ node-fibers fibonacci.js
+	0
+	1
+	1
+	2
+	3
+	5
+	8
+	13
+	21
+	34
+	55
+	89
+	144
+	233
+	377
+	610
+	987
+	1597
+
+
+### Basic Exceptions
 Fibers are exception-safe; exceptions will continue travelling through fiber
 boundaries:
 
 	$ cat error.js
 	require('fibers');
-	var print = require('util').print;
 
 	var fn = Fiber(function() {
-		print('async work here...\n');
+		console.log('async work here...');
 		yield();
-		print('still working...\n');
+		console.log('still working...');
 		yield();
-		print('just a little bit more...\n');
+		console.log('just a little bit more...');
 		yield();
 		throw new Error('oh crap!');
 	});
@@ -124,10 +179,10 @@ boundaries:
 			fn.run();
 		}
 	} catch(e) {
-		print('safely caught that error!\n');
-		print(e.stack + '\n');
+		console.log('safely caught that error!');
+		console.log(e.stack);
 	}
-	print('done!\n');
+	console.log('done!');
 
 	$ node-fibers error.js
 	async work here...
@@ -153,7 +208,9 @@ is documented below. Other externally-maintained options include
 [0ctave/node-sync](https://github.com/0ctave/node-sync) and
 [lm1/node-fibers-promise](https://github.com/lm1/node-fibers-promise). However
 you **should** feel encouraged to be creative with fibers and build a solution
-which works well with your project.
+which works well with your project. For instance, `Future` is not a good
+abstraction to use if you want to build a generator function (see Fibonacci
+example above).
 
 Using `Future` to wrap existing node functions. At no point is the node event
 loop blocked:
@@ -332,11 +389,11 @@ Fiber's definition looks something like this:
 GARBAGE COLLECTION
 ------------------
 
-If you intend to use "lazy lists", you should be aware that all fibers must
-eventually unwind. This is implemented by causing yield() to throw
-unconditionally when the library is trying to unwind your fiber-- either
-because reset() was called, or all handles to the fiber were lost and v8 wants
-to delete it.
+If you intend to build generators, iterators, or "lazy lists", you should be
+aware that all fibers must eventually unwind. This is implemented by causing
+yield() to throw unconditionally when the library is trying to unwind your
+fiber-- either because reset() was called, or all handles to the fiber were lost
+and v8 wants to delete it.
 
 Something like this will, at some point, cause an infinite loop in your
 application:
