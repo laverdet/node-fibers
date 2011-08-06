@@ -207,7 +207,20 @@ Future.prototype = {
 	},
 
 	/**
-	 * Propogates errors to an another future or array of futures.
+	 * Propogate results to another future.
+	 */
+	proxy: function(future) {
+		this.resolve(function(err, val) {
+			if (err) {
+				future.throw(err);
+			} else {
+				future.return(val);
+			}
+		});
+	},
+
+	/**
+	 * Propogate only errors to an another future or array of futures.
 	 */
 	proxyErrors: function(futures) {
 		this.resolve(function(err) {
