@@ -4,9 +4,13 @@ var util = require('util');
 module.exports = Future;
 Function.prototype.future = function() {
 	var fn = this;
-	return function() {
+	var ret = function() {
 		return new FiberFuture(fn, this, arguments);
 	};
+	ret.toString = function() {
+		return '<<Future '+ fn+ '.future()>>';
+	};
+	return ret;
 };
 
 function Future() {}
@@ -128,7 +132,7 @@ Future.prototype = {
 				try {
 					callbacks[ii](undefined, value);
 				} catch(ex) {
-					console.log(ex.stack || ex);
+					console.log(String(ex));
 					process.exit(1);
 				}
 			}
