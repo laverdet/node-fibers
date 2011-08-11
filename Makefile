@@ -2,7 +2,9 @@ include src/platform.mk
 COROUTINE_SO_FULL := $(shell echo `pwd`/src/$(COROUTINE_SO))
 FIBERS_SO := $(shell echo `pwd`/src/fibers.node)
 
-all: $(COROUTINE_SO_FULL) $(FIBERS_SO)
+all: fibers test
+
+fibers: $(COROUTINE_SO_FULL) $(FIBERS_SO)
 
 dist: man
 
@@ -16,8 +18,11 @@ man: README.md
 	mkdir -p man
 	ronn --roff $< > $@/fibers.1
 
+test: fibers
+	./test.sh
+
 clean:
 	$(MAKE) -C src clean
 	$(RM) -r man
 
-.PHONY: clean $(COROUTINE_SO_FULL) $(FIBERS_SO)
+.PHONY: clean dist fibers test $(COROUTINE_SO_FULL) $(FIBERS_SO)
