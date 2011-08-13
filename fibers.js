@@ -7,46 +7,7 @@ if (fs.statSync(process.execPath).mtime >
 		'could happen if you upgrade node. Try `npm rebuild fibers` to rebuild. If that doesn\'t ' +
 		'work you could consider running `touch ' + __dirname + 'src/fibers` and maybe there won\'t ' +
 		'be a problem.');
-} else if (!process.env.FIBER_SHIM) {
-	throw new Error(
-		'Fiber support was not enabled when you ran node. To enable support for fibers, please run ' +
-		'node with the included `node-fibers` script. For example, instead of running:\n\n' +
-		'  node script.js\n\n' +
-		'You should run:\n\n' +
-		'  node-fibers script.js\n\n' +
-		'You will not be able to use Fiber without this support enabled.');
 }
 
 // Injects `Fiber` and `yield` in to global
 require('./src/fibers');
-
-// Clean up node-fibers environment mess
-var fibersEnv = {};
-for (var ii in {
-	FIBER_SHIM: 1,
-	LD_PRELOAD: 1,
-	DYLD_INSERT_LIBRARIES: 1,
-	DYLD_FORCE_FLAT_NAMESPACE: 1,
-	DYLD_LIBRARY_PATH: 1,
-}) {
-	if (ii in process.env) {
-		fibersEnv[ii] = process.env[ii];
-		delete process.env[ii];
-	}
-}
-
-// Shim child_process.spawn to reshim any spawned Node processes
-var cp = require('child_process');
-cp.spawn = function(spawn) {
-	return function(command, args, options) {
-		if (command === process.execPath) {
-			// Reshim the node process
-			options = Object.create(options || {});
-			options.env = Object.create(options.env || process.env);
-			for (var ii in fibersEnv) {
-				options.env[ii] = fibersEnv[ii];
-			}
-		}
-		return spawn(command, args, options);
-	};
-}(cp.spawn);

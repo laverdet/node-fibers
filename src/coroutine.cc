@@ -24,6 +24,12 @@ static Coroutine* delete_me = NULL;
 void Coroutine::init() {
 	pthread_key_create(&ceil_thread_key, NULL);
 	pthread_setspecific(ceil_thread_key, &current());
+	// Assume that v8 registered their TLS keys within the past 5 keys.. if not there's trouble.
+	if (ceil_thread_key > 5) {
+		floor_thread_key = ceil_thread_key - 5;
+	} else {
+		floor_thread_key = 0;
+	}
 }
 
 Coroutine& Coroutine::current() {
@@ -146,13 +152,4 @@ void* Coroutine::bottom() const {
 
 size_t Coroutine::size() const {
 	return sizeof(Coroutine) + stack_size;
-}
-
-namespace {
-	class Loader {
-		public: Loader() {
-			pthread_key_create(&floor_thread_key, NULL);
-		}
-	};
-	Loader loader;
 }
