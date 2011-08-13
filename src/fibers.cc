@@ -501,7 +501,7 @@ Persistent<String> Fiber::sym_current;
 extern "C" void init(Handle<Object> target) {
 	HandleScope scope;
 	Handle<Object> global = Context::GetCurrent()->Global();
-	assert(Coroutine::is_local_storage_enabled());
+	Coroutine::init();
 	Fiber::Init(global);
 	// Default stack size of 64kb. Perhaps make this configurable by the run time?
 	Coroutine::set_stack_size(64 * 1024);
