@@ -43,10 +43,16 @@ Coroutine& Coroutine::current() {
 
 void Coroutine::set_stack_size(size_t size) {
 	assert(!stack_size);
+#ifdef CORO_PTHREAD
+	size += 1024 * 64;
+#endif
 	stack_size = size;
 }
 
 void Coroutine::trampoline(void* that) {
+#ifdef CORO_PTHREAD
+	pthread_setspecific(ceil_thread_key, that);
+#endif
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
@@ -85,6 +91,7 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 
 void Coroutine::transfer(Coroutine& next) {
 	assert(this != &next);
+#ifndef CORO_PTHREAD
 	{
 		for (pthread_key_t ii = ceil_thread_key - 1; ii > floor_thread_key; --ii) {
 			// Capture current thread specifics
@@ -107,8 +114,11 @@ void Coroutine::transfer(Coroutine& next) {
 		}
 	}
 	pthread_setspecific(ceil_thread_key, &next);
+#endif
 	coro_transfer(&context, &next.context);
+#ifndef CORO_PTHREAD
 	pthread_setspecific(ceil_thread_key, this);
+#endif
 }
 
 void Coroutine::run() {
