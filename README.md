@@ -4,34 +4,40 @@ fibers(1) -- Fiber support for v8 and Node
 INSTALLING
 ----------
 
-To install `node-fibers` just use `npm`. It's recommended that you install
-`node-fibers` globally, as it includes a wrapper script which you must run in
-lieu of `node`.
+To install `node-fibers` just use `npm`. The exact process depends on your
+version of Node, so read below.
 
-To install with **npm>=1.0**:
+### If you're using node < 0.5.2:
 
-* `npm install -g fibers`
+It's recommended that you install `node-fibers` globally, as it includes a
+wrapper script which you must run in. Furthermore you must install from the 0.5
+version of `node-fibers`:
+
+* `npm install -g fibers@0.5`
 * Ensure `node-fibers` can be found in your $PATH (this should be true unless
 	you symlinked `node` somewhere).
 * Ensure the global `node_modules` directory is in your $NODE_PATH. You might
 	have done this when you installed `npm`, but probably didn't. If this is too
-	hard you can also just do this:
-	``NODE_ROOT=$(dirname $(dirname $(which node))); [[ $NODE_ROOT ]] && ln -s $NODE_ROOT/lib/node_modules/fibers $NODE_ROOT/lib/node/``
+	difficult you can also just do this:
+	``NODE_ROOT=$(echo 'console.log(require("path").resolve(process.execPath, "..", ".."))' | node); ln -s $(npm list -g | head -n1)/node_modules/fibers $NODE_ROOT/lib/node/``
 
-To install **without npm**:
+### Or if you're using node >= 0.5.2:
 
-* `make`
+* `npm install fibers`
+* You're done!
 
-Only Linux and OS X environments are supported. Windows support is theoretically
-possible, but not planned.
+Only Linux and OS X environments are supported. Windows support is totally
+possible, but I'm not going to do it for you. You may be able to build this on
+Windows in cygwin just by messing with the makefiles.
 
 
 GETTING STARTED
 ---------------
 
-If you intend to use fibers, be sure to run `node-fibers` instead of `node`.
-After that just `require('fibers');` in any Javascript file and you will have
-fiber support.
+If you intend to use fibers, be sure to run `node-fibers` instead of `node`
+**note: this only applies for node<0.5.2 and node-fibers 0.5.x**. After that
+just `require('fibers');` in any Javascript file and you will have fiber
+support.
 
 
 EXAMPLES
@@ -64,7 +70,7 @@ other events.
 	}).run();
 	console.log('back in main');
 
-	$ node-fibers sleep.js
+	$ node sleep.js
 	wait... Fri Jan 21 2011 22:42:04 GMT+0900 (JST)
 	back in main
 	ok... Fri Jan 21 2011 22:42:05 GMT+0900 (JST)
@@ -89,7 +95,7 @@ event loop is never blocked while this script is running.
 		console.log(ii);
 	}
 
-	$ node-fibers generator.js
+	$ node generator.js
 	1
 	2
 	3
@@ -136,7 +142,7 @@ example.
 		console.log(ii);
 	}
 
-	$ node-fibers fibonacci.js
+	$ node fibonacci.js
 	0
 	1
 	1
@@ -184,7 +190,7 @@ boundaries:
 	}
 	console.log('done!');
 
-	$ node-fibers error.js
+	$ node error.js
 	async work here...
 	still working...
 	just a little bit more...
@@ -244,7 +250,7 @@ loop blocked:
 		}
 	}).run();
 
-	$ node-fibers ls.js 
+	$ node ls.js 
 	Found 11 files
 	bin: 4096
 	fibers.js: 1708
@@ -290,7 +296,7 @@ callback-style code and fiber-aware waiting code:
 		console.log('Set timer for 2000ms, waited '+ val+ 'ms');
 	});
 
-	$ node-fibers sleep.js
+	$ node sleep.js
 	Set timer for 2000ms, waited 2009ms
 
 

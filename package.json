@@ -10,9 +10,6 @@
 	"scripts": {
 		"install": "make clean all"
 	},
-	"bin": {
-		"node-fibers": "./bin/node-fibers"
-	},
 	"man": "./man/fibers.1",
 	"repository": {
 		"type": "git",
