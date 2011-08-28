@@ -1,6 +1,6 @@
 # I know nothing about scons, waf, or autoconf. Sorry.
-NODE_PREFIX := $(shell node --vars | egrep ^NODE_PREFIX: | cut -c14-)
-NODE_PLATFORM := $(shell node --vars | egrep -o 'DPLATFORM="[^"]+' | cut -c12-)
+NODE_PREFIX := $(shell echo "console.log(require('path').dirname(require('path').dirname(process.execPath)))" | node)
+NODE_PLATFORM := $(shell echo "console.log(process.platform.replace('2', ''))" | node)
 NODE_BITS := $(shell file --dereference `which node` | egrep -o '[0-9]{2}-bit' | cut -c-2)
 
 CPPFLAGS = -Wall -Wno-deprecated-declarations -I$(NODE_PREFIX)/include -I$(NODE_PREFIX)/include/node
