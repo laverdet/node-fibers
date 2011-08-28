@@ -1,4 +1,9 @@
-var Future = require('fibers/future');
+var Future;
+try {
+	Future = require('fibers/future');
+} catch (err) {
+	Future = require('future');
+}
 
 function Timer(ms) {
 	var future = new Future;
