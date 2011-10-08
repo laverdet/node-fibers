@@ -23,10 +23,8 @@ endif
 ifeq ($(NODE_PLATFORM), linux)
 	# SJLJ in linux = hangs & segfaults
 	CPPFLAGS += -DCORO_UCONTEXT
-	COROUTINE_SO = coroutine.so
 endif
 ifeq ($(NODE_PLATFORM), darwin)
 	# UCONTEXT in os x = hangs & segfaults :(
 	CPPFLAGS += -DCORO_SJLJ
-	COROUTINE_SO = coroutine.dylib
 endif
