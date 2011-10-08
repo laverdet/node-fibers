@@ -132,7 +132,7 @@ Future.prototype = {
 				try {
 					callbacks[ii](undefined, value);
 				} catch(ex) {
-					console.log(String(ex));
+					console.log(String(ex.stack || ex.message || ex));
 					process.exit(1);
 				}
 			}
