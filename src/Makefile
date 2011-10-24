@@ -3,6 +3,9 @@ include platform.mk
 ifeq ($(NODE_PLATFORM), linux)
 	CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
 endif
+ifeq ($(NODE_PLATFORM), sunos)
+       CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
+endif
 ifeq ($(NODE_PLATFORM), darwin)
 	CPP_NODEFLAGS = -bundle -undefined dynamic_lookup
 endif

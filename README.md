@@ -26,9 +26,9 @@ version of `node-fibers`:
 * `npm install fibers`
 * You're done!
 
-Only Linux and OS X environments are supported. Windows support is totally
-possible, but I'm not going to do it for you. You may be able to build this on
-Windows in cygwin just by messing with the makefiles.
+Only Linux, SunOS and OS X environments are supported. Windows support is
+totally possible, but I'm not going to do it for you. You may be able to build
+this on Windows in cygwin just by messing with the makefiles.
 
 
 GETTING STARTED
