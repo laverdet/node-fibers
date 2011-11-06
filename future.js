@@ -40,29 +40,40 @@ Future.wrap = function(fn, idx) {
 Future.wait = function wait(/* ... */) {
 
 	// Normalize arguments + pull out a FiberFuture for reuse if possible
-	var futures = Array.prototype.slice.call(arguments, 0), singleFiberFuture;
-	for (var ii = 0; ii < futures.length; ++ii) {
-		if (futures[ii] instanceof Future) {
+	var futures = [], singleFiberFuture;
+	for (var ii = 0; ii < arguments.length; ++ii) {
+		var arg = arguments[ii];
+		if (arg instanceof Future) {
 			// Ignore already resolved fibers
-			if (futures[ii].isResolved()) {
-				futures.splice(ii, 1);
-				--ii;
+			if (arg.isResolved()) {
 				continue;
 			}
 			// Look for fiber reuse
-			if (!singleFiberFuture && futures[ii] instanceof FiberFuture && !futures[ii].started) {
-				singleFiberFuture = futures[ii];
-				futures.splice(ii, 1);
-				--ii;
+			if (!singleFiberFuture && arg instanceof FiberFuture && !arg.started) {
+				singleFiberFuture = arg;
 				continue;
 			}
-		} else if (futures[ii] instanceof Array) {
-			// Flatten arrays
-			futures.splice.apply(futures, [ii, 1].concat(futures[ii]));
-			--ii;
-			continue;
+			futures.push(arg);
+		} else if (arg instanceof Array) {
+			for (var jj = 0; jj < arg.length; ++jj) {
+				var aarg = arg[jj];
+				if (aarg instanceof Future) {
+					// Ignore already resolved fibers
+					if (aarg.isResolved()) {
+						continue;
+					}
+					// Look for fiber reuse
+					if (!singleFiberFuture && aarg instanceof FiberFuture && !aarg.started) {
+						singleFiberFuture = aarg;
+						continue;
+					}
+					futures.push(aarg);
+				} else {
+					throw new Error(aarg+ ' is not a future');
+				}
+			}
 		} else {
-			throw new Error(futures[ii] + ' is not a future');
+			throw new Error(arg+ ' is not a future');
 		}
 	}
 
