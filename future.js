@@ -247,6 +247,9 @@ Future.prototype = {
 	 * future threw, future.wait() will throw.
 	 */
 	wait: function() {
+		if (this.isResolved()) {
+			return this.get();
+		}
 		Future.wait(this);
 		return this.get();
 	},
