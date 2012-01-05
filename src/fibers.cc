@@ -30,7 +30,6 @@ class Fiber {
 		static Fiber* current;
 		static vector<Fiber*> orphaned_fibers;
 		static Persistent<Value> fatal_stack;
-		static Persistent<String> sym_current;
 
 		Persistent<Object> handle;
 		Persistent<Function> cb;
@@ -290,7 +289,6 @@ class Fiber {
 			entry_fiber = &Coroutine::current();
 			Fiber* last_fiber = current;
 			current = this;
-			fiber_object->Set(sym_current, current->handle);
 
 			// This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
 			// already running.
@@ -301,11 +299,6 @@ class Fiber {
 
 			// At this point the fiber either returned or called `yield()`.
 			current = last_fiber;
-			if (last_fiber) {
-				fiber_object->Set(sym_current, last_fiber->handle);
-			} else {
-				fiber_object->Set(sym_current, Undefined());
-			}
 		}
 
 		/**
@@ -441,6 +434,14 @@ class Fiber {
 			return Boolean::New(that.started);
 		}
 
+		static Handle<Value> GetCurrent(Local<String> property, const AccessorInfo& info) {
+			if (current) {
+				return current->handle;
+			} else {
+				return Undefined();
+			}
+		}
+
 	public:
 		/**
 		 * Initialize the Fiber library.
@@ -480,9 +481,8 @@ class Fiber {
 
 			// Fiber properties
 			Handle<Function> fn = tmpl->GetFunction();
-			sym_current = Persistent<String>::New(String::NewSymbol("current"));
-			fn->Set(sym_current, Undefined());
 			fn->Set(sym_yield, yield);
+			fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
 
 			// Global Fiber
 			target->Set(String::NewSymbol("Fiber"), fn);
@@ -496,7 +496,6 @@ Locker* Fiber::global_locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
-Persistent<String> Fiber::sym_current;
 
 extern "C" void init(Handle<Object> target) {
 	HandleScope scope;
