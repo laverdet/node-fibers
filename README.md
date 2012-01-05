@@ -4,40 +4,22 @@ fibers(1) -- Fiber support for v8 and Node
 INSTALLING
 ----------
 
-To install `node-fibers` just use `npm`. The exact process depends on your
-version of Node, so read below.
-
-### If you're using node < 0.5.2:
-
-It's recommended that you install `node-fibers` globally, as it includes a
-wrapper script which you must run in. Furthermore you must install from the 0.5
-version of `node-fibers`:
-
-* `npm install -g fibers@0.5`
-* Ensure `node-fibers` can be found in your $PATH (this should be true unless
-	you symlinked `node` somewhere).
-* Ensure the global `node_modules` directory is in your $NODE_PATH. You might
-	have done this when you installed `npm`, but probably didn't. If this is too
-	difficult you can also just do this:
-	``NODE_ROOT=$(echo 'console.log(require("path").resolve(process.execPath, "..", ".."))' | node); ln -s $(npm list -g | head -n1)/node_modules/fibers $NODE_ROOT/lib/node/``
-
-### Or if you're using node >= 0.5.2:
-
+### via npm
 * `npm install fibers`
 * You're done!
 
+### from source
+* git clone git://github.com/laverdet/node-fibers.git
+* cd node-fibers
+* make
+
+### notes
 Only Linux, SunOS and OS X environments are supported. Windows support is
-totally possible, but I'm not going to do it for you. You may be able to build
-this on Windows in cygwin just by messing with the makefiles.
+totally possible, but I'm not going to do it for you.
 
-
-GETTING STARTED
----------------
-
-If you intend to use fibers, be sure to run `node-fibers` instead of `node`
-**note: this only applies for node<0.5.2 and node-fibers 0.5.x**. After that
-just `require('fibers');` in any Javascript file and you will have fiber
-support.
+node 0.6.x is required to run this release of `node-fibers`. Older versions of
+node (0.4.x) are supported in older releases of node-fibers. See the 0.5.x
+branch of `node-fibers` for documentation.
 
 
 EXAMPLES
@@ -221,11 +203,10 @@ functionality in order make possible many different programming patterns. This
 makes the `Fiber` class relatively lousy to work with directly, but extremely
 powerful when coupled with a decent abstraction. There is no right answer for
 which abstraction is right for you and your project. Included with `node-fibers`
-is an implementation of "futures" which is fiber-aware.  Usage of this library
-is documented below. Other externally-maintained options include
-[0ctave/node-sync](https://github.com/0ctave/node-sync) and
-[lm1/node-fibers-promise](https://github.com/lm1/node-fibers-promise). However
-you **should** feel encouraged to be creative with fibers and build a solution
+is an implementation of "futures" which is fiber-aware. Usage of this library
+is documented below. There are several other externally-maintained options
+which can be found on the [wiki](https://github.com/laverdet/node-fibers/wiki).
+You **should** feel encouraged to be creative with fibers and build a solution
 which works well with your project. For instance, `Future` is not a good
 abstraction to use if you want to build a generator function (see Fibonacci
 example above).
