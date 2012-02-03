@@ -120,7 +120,27 @@ Future.prototype = {
 		if (!this.resolved) {
 			throw new Error('Future must resolve before value is ready');
 		} else if (this.error) {
-			throw this.error;
+			// Link the stack traces up
+			var stack = {}, error = this.error instanceof Object ? this.error : new Error(this.error);
+			var longError = Object.create(error);
+			Error.captureStackTrace(stack, Future.prototype.get);
+			Object.defineProperty(longError, 'stack', {
+				get: function() {
+					var baseStack = error.stack;
+					if (baseStack) {
+						baseStack = baseStack.split('\n');
+						return [baseStack[0]]
+							.concat(stack.stack.split('\n').slice(1))
+							.concat('    - - - - -')
+							.concat(baseStack.slice(1))
+							.join('\n');
+					} else {
+						return stack.stack;
+					}
+				},
+				enumerable: true,
+			});
+			throw longError;
 		} else {
 			return this.value;
 		}
@@ -141,7 +161,12 @@ Future.prototype = {
 			delete this.callbacks;
 			for (var ii = 0; ii < callbacks.length; ++ii) {
 				try {
-					callbacks[ii](undefined, value);
+					var ref = callbacks[ii];
+					if (ref[1]) {
+						ref[1](value);
+					} else {
+						ref[0](undefined, value);
+					}
 				} catch(ex) {
 					console.log(String(ex.stack || ex.message || ex));
 					process.exit(1);
@@ -167,7 +192,12 @@ Future.prototype = {
 			delete this.callbacks;
 			for (var ii = 0; ii < callbacks.length; ++ii) {
 				try {
-					callbacks[ii](error);
+					var ref = callbacks[ii];
+					if (ref[1]) {
+						ref[0].throw(error);
+					} else {
+						ref[0](error);
+					}
 				} catch(ex) {
 					console.log(ex.stack || ex);
 					process.exit(1);
@@ -198,12 +228,25 @@ Future.prototype = {
 
 	/**
 	 * Waits for this future to resolve and then invokes a callback.
+	 *
+	 * If two arguments are passed, the first argument is a future which will be thrown to in the case
+	 * of error, and the second is a function(val){} callback.
+	 *
+	 * If only one argument is passed it is a standard function(err, val){} callback.
 	 */
-	resolve: function(cb) {
+	resolve: function(arg1, arg2) {
 		if (this.resolved) {
-			cb(this.error, this.value);
+			if (arg2) {
+				if (this.error) {
+					arg1.throw(this.error);
+				} else {
+					arg2(this.value);
+				}
+			} else {
+				arg1(this.error, this.value);
+			}
 		} else {
-			(this.callbacks = this.callbacks || []).push(cb);
+			(this.callbacks = this.callbacks || []).push([arg1, arg2]);
 		}
 		return this;
 	},
