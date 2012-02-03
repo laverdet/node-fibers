@@ -430,6 +430,9 @@ class Fiber {
 		 * Getters for `started`, and `current`.
 		 */
 		static Handle<Value> GetStarted(Local<String> property, const AccessorInfo& info) {
+			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 1) {
+				return Undefined();
+			}
 			Unwrap(Fiber& that, info.This());
 			return Boolean::New(that.started);
 		}
