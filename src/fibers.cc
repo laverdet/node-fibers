@@ -36,6 +36,7 @@ class Fiber {
 		Persistent<Context> v8_context;
 		Persistent<Value> zombie_exception;
 		Persistent<Value> yielded;
+		Isolate* isolate;
 		bool yielded_exception;
 		Coroutine* entry_fiber;
 		Coroutine* this_fiber;
@@ -48,6 +49,7 @@ class Fiber {
 			handle(Persistent<Object>::New(handle)),
 			cb(Persistent<Function>::New(cb)),
 			v8_context(Persistent<Context>::New(v8_context)),
+			isolate(Isolate::GetCurrent()),
 			started(false),
 			yielding(false),
 			zombie(false),
@@ -293,7 +295,7 @@ class Fiber {
 			// This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
 			// already running.
 			{
-				Unlocker unlocker;
+				Unlocker unlocker(isolate);
 				this_fiber->run();
 			}
 
@@ -326,7 +328,8 @@ class Fiber {
 			// Coroutine::finish, because that function may not return, in which case the destructors in
 			// this function won't be called.
 			{
-				Locker locker;
+				Locker locker(that.isolate);
+				Isolate::Scope isolate_scope(that.isolate);
 				HandleScope scope;
 
 				// Set the stack guard for this "thread"; allow 2k of padding past the JS limit for C++ code
@@ -412,7 +415,7 @@ class Fiber {
 			// ok to garbage collect. If no one ever has a handle to resume the function it's harmful to
 			// keep the handle around.
 			{
-				Unlocker unlocker;
+				Unlocker unlocker(that.isolate);
 				that.yielding = true;
 				that.entry_fiber->run();
 				that.yielding = false;
@@ -455,7 +458,7 @@ class Fiber {
 			// shutting down. TODO: There's likely a better way to accomplish this, but since the
 			// application is going down lost memory isn't the end of the world. But with a regular lock
 			// there's seg faults when node shuts down.
-			global_locker = new Locker;
+			global_locker = new Locker(Isolate::GetCurrent());
 			current = NULL;
 
 			// Fiber constructor
