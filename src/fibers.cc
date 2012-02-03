@@ -488,7 +488,7 @@ class Fiber {
 			fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
 
 			// Global Fiber
-			target->Set(String::NewSymbol("Fiber"), fn);
+			target->Set(String::NewSymbol("Fiber"), fn, ReadOnly);
 			fiber_object = Persistent<Function>::New(fn);
 		}
 };
@@ -499,8 +499,15 @@ Locker* Fiber::global_locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
+bool did_init = false;
 
 extern "C" void init(Handle<Object> target) {
+	if (did_init || !target->Get(String::New("Fiber"))->IsUndefined()) {
+		// Oh god. Node will call init() twice even though the library was loaded only once. See Node
+		// issue #2621 (no fix).
+		return;
+	}
+	did_init = true;
 	HandleScope scope;
 	Handle<Object> global = Context::GetCurrent()->Global();
 	Coroutine::init();
