@@ -22,11 +22,15 @@ Future.wrap = function(fn, idx) {
 	idx = idx === undefined ? fn.length - 1 : idx;
 	return function() {
 		var args = Array.prototype.slice.call(arguments);
-		if (args.length > idx) {
+		if (idx >= 0 && args.length > idx) {
 			throw new Error('function expects no more than '+ idx+ ' arguments');
 		}
 		var future = new Future;
-		args[idx] = future.resolver();
+		if (idx >= 0) {
+		  args[idx] = future.resolver();
+		} else {
+		  args.push(future.resolver())
+		}
 		fn.apply(this, args);
 		return future;
 	};
