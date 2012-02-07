@@ -39,3 +39,6 @@ ifeq ($(NODE_PLATFORM), darwin)
 	# UCONTEXT in os x = hangs & segfaults :(
 	CPPFLAGS += -DCORO_SJLJ
 endif
+ifeq ($(NODE_PLATFORM), openbsd)
+       CPPFLAGS += -DCORO_ASM
+endif
