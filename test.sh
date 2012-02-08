@@ -1,6 +1,6 @@
 #!/bin/sh
-for ii in `ls test`
-	do echo -n $ii': '
+for ii in `ls test`; do
+	$(which echo) -n $ii': '
 	OUTPUT=$(NODE_PATH=`pwd` node test/$ii 2>&1)
 	echo "$OUTPUT"
 	if [[ "$OUTPUT" != "pass" ]]; then

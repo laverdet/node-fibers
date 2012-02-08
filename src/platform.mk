@@ -1,7 +1,7 @@
 # I know nothing about scons, waf, or autoconf. Sorry.
 NODE_PREFIX := $(shell node -e "console.log(require('path').dirname(require('path').dirname(process.execPath)))")
 NODE_PLATFORM := $(shell node -e "console.log(process.platform.replace('2', ''))")
-NODE_BITS := $(shell file `echo "console.log(process.arch.replace(/ia|x/, ''))" | node`)
+NODE_BITS := $(shell node -e "console.log(process.arch.replace(/^(?:ia|x)/, ''))")
 
 CPPFLAGS = -Wall -Wno-deprecated-declarations -I$(NODE_PREFIX)/include -I$(NODE_PREFIX)/include/node
 ifdef DEBUG
