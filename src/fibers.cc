@@ -448,6 +448,24 @@ class Fiber {
 			}
 		}
 
+		/**
+		 * Allow access to coroutine pool size
+		 */
+		static Handle<Value> GetPoolSize(Local<String> property, const AccessorInfo& info) {
+			return Number::New(Coroutine::pool_size);
+		}
+
+		static void SetPoolSize(Local<String> property, Local<Value> value, const AccessorInfo& info) {
+			Coroutine::pool_size = value->ToNumber()->Value();
+		}
+
+		/**
+		 * Return number of fibers that have been created
+		 */
+		static Handle<Value> GetFibersCreated(Local<String> property, const AccessorInfo& info) {
+			return Number::New(Coroutine::coroutines_created());
+		}
+
 	public:
 		/**
 		 * Initialize the Fiber library.
@@ -489,6 +507,8 @@ class Fiber {
 			Handle<Function> fn = tmpl->GetFunction();
 			fn->Set(sym_yield, yield);
 			fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
+			fn->SetAccessor(String::NewSymbol("poolSize"), GetPoolSize, SetPoolSize);
+			fn->SetAccessor(String::NewSymbol("fibersCreated"), GetFibersCreated);
 
 			// Global Fiber
 			target->Set(String::NewSymbol("Fiber"), fn, ReadOnly);

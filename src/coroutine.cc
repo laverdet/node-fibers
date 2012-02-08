@@ -6,8 +6,6 @@
 #include <stack>
 #include <vector>
 
-#define MAX_POOL_SIZE 120
-
 #include <iostream>
 using namespace std;
 
@@ -15,8 +13,10 @@ static pthread_key_t floor_thread_key = NULL;
 static pthread_key_t ceil_thread_key = NULL;
 
 static size_t stack_size = 0;
+static size_t coroutines_created_ = 0;
 static vector<Coroutine*> fiber_pool;
 static Coroutine* delete_me = NULL;
+size_t Coroutine::pool_size = 120;
 
 /**
  * Coroutine class definition
@@ -47,6 +47,10 @@ void Coroutine::set_stack_size(size_t size) {
 	size += 1024 * 64;
 #endif
 	stack_size = size;
+}
+
+size_t Coroutine::coroutines_created() {
+	return coroutines_created_;
 }
 
 void Coroutine::trampoline(void* that) {
@@ -80,6 +84,7 @@ Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
 		fiber.reset(entry, arg);
 		return fiber;
 	}
+	++coroutines_created_;
 	return *new Coroutine(*entry, arg);
 }
 
@@ -142,7 +147,7 @@ void Coroutine::finish(Coroutine& next) {
 	{
 		assert(&next != this);
 		assert(&current() == this);
-		if (fiber_pool.size() < MAX_POOL_SIZE) {
+		if (fiber_pool.size() < pool_size) {
 			fiber_pool.push_back(this);
 		} else {
 			// TODO?: This assumes that we didn't capture any keys with dtors. This may not always be

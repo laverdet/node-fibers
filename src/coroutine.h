@@ -41,6 +41,8 @@ class Coroutine {
 		void transfer(Coroutine& next);
 
 	public:
+		static size_t pool_size;
+
 		/**
 		 * Returns the currently-running fiber.
 		 */
@@ -61,6 +63,11 @@ class Coroutine {
 		 * size is global instead of per-coroutine.
 		 */
 		static void set_stack_size(size_t size);
+
+		/**
+		 * Get the number of coroutines that have been created.
+		 */
+		static size_t coroutines_created();
 
 		/**
 		 * Start or resume execution in this fiber. Note there is no explicit yield() function,

@@ -1,7 +1,7 @@
 require('fibers');
 
-var fibers = [];
 for (var jj = 0; jj < 10; ++jj) {
+	var fibers = [];
 	for (var ii = 0; ii < 200; ++ii) {
 		var fn = Fiber(function() {
 			yield();
