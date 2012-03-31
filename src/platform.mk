@@ -45,3 +45,6 @@ endif
 ifeq ($(NODE_PLATFORM), openbsd)
 	CPPFLAGS += -DCORO_ASM
 endif
+ifeq ($(NODE_PLATFORM), freebsd)
+	CPPFLAGS += -DCORO_UCONTEXT
+endif
