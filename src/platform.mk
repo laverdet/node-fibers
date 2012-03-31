@@ -3,7 +3,10 @@ NODE_PREFIX := $(shell node -e "console.log(require('path').dirname(require('pat
 NODE_PLATFORM := $(shell node -e "console.log(process.platform.replace('2', ''))")
 NODE_BITS := $(shell node -e "console.log(process.arch.replace(/^(?:ia|x)/, ''))")
 
-CPPFLAGS = -Wall -Wno-deprecated-declarations -I$(NODE_PREFIX)/include -I$(NODE_PREFIX)/include/node
+CPPFLAGS += -Wall -Wno-deprecated-declarations -I$(NODE_PREFIX)/include -I$(NODE_PREFIX)/include/node
+ifdef FIBERS_NATIVE
+	CPPFLAGS += -march=native
+endif
 ifdef DEBUG
 	CPPFLAGS += -ggdb -O0
 else
@@ -40,5 +43,5 @@ ifeq ($(NODE_PLATFORM), darwin)
 	CPPFLAGS += -DCORO_SJLJ
 endif
 ifeq ($(NODE_PLATFORM), openbsd)
-       CPPFLAGS += -DCORO_ASM
+	CPPFLAGS += -DCORO_ASM
 endif

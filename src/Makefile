@@ -10,7 +10,7 @@ ifeq ($(NODE_PLATFORM), darwin)
 	CPP_NODEFLAGS = -bundle -undefined dynamic_lookup
 endif
 ifeq ($(NODE_PLATFORM), openbsd)
-       CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
+	CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
 endif
 
 all: fibers.node

@@ -3,6 +3,9 @@ FIBERS_SO := $(shell echo `pwd`/src/fibers.node)
 
 all: fibers test
 
+native:
+	FIBERS_NATIVE=1 make all
+
 fibers: $(FIBERS_SO)
 
 dist: man
