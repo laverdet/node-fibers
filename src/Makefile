@@ -12,6 +12,9 @@ endif
 ifeq ($(NODE_PLATFORM), openbsd)
 	CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
 endif
+ifeq ($(NODE_PLATFORM), freebsd)
+	CPP_NODEFLAGS = -fPIC -shared -Wl,-Bdynamic
+endif
 
 all: fibers.node
 

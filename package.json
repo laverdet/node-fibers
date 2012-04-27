@@ -8,14 +8,14 @@
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
 	"scripts": {
-		"install": "make clean native"
+		"install": "make clean native || gmake clean native"
 	},
 	"man": "./man/fibers.1",
 	"repository": {
 		"type": "git",
 		"url": "git://github.com/laverdet/node-fibers.git"
 	},
-	"os": ["darwin", "linux"],
+	"os": ["darwin", "linux", "sunos", "openbsd", "freebsd"],
 	"engines": {
 		"node": ">=0.5.2"
 	}
