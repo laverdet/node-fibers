@@ -4,7 +4,7 @@ FIBERS_SO := $(shell echo `pwd`/src/fibers.node)
 all: fibers test
 
 native:
-	FIBERS_NATIVE=1 ${MAKE} all
+	FIBERS_NATIVE=1 $(MAKE) all || $(MAKE) fibers
 
 fibers: $(FIBERS_SO)
 

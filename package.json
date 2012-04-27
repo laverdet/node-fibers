@@ -8,7 +8,7 @@
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
 	"scripts": {
-		"install": "make clean native || gmake clean native"
+		"install": "$(which gmake || which make) clean native"
 	},
 	"man": "./man/fibers.1",
 	"repository": {
