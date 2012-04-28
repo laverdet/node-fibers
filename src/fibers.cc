@@ -1,6 +1,6 @@
 #include "coroutine.h"
 #include <assert.h>
-#include <node/node.h>
+#include <node.h>
 
 #include <vector>
 
@@ -389,8 +389,9 @@ class Fiber {
 		/**
 		 * Yield control back to the function that called `run()`. The first parameter to this function
 		 * is returned from `run()`. The context is saved, to be later resumed from `run()`.
+		 * note: sigh, there is a #define Yield() in WinBase.h on Windows
 		 */
-		static Handle<Value> Yield(const Arguments& args) {
+		static Handle<Value> Yield_(const Arguments& args) {
 			if (current == NULL) {
 				THROW(Exception::Error, "yield() called with no fiber running");
 			}
@@ -499,7 +500,7 @@ class Fiber {
 			proto->SetAccessor(String::NewSymbol("started"), GetStarted);
 
 			// Global yield() function
-			Handle<Function> yield = FunctionTemplate::New(Yield)->GetFunction();
+			Handle<Function> yield = FunctionTemplate::New(Yield_)->GetFunction();
 			Handle<String> sym_yield = String::NewSymbol("yield");
 			target->Set(sym_yield, yield);
 
