@@ -538,3 +538,5 @@ extern "C" void init(Handle<Object> target) {
 	// Default stack size of 64kb. Perhaps make this configurable by the run time?
 	Coroutine::set_stack_size(64 * 1024);
 }
+
+NODE_MODULE(fibers, init)
