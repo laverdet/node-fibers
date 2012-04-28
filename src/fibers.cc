@@ -369,7 +369,7 @@ class Fiber {
 
 				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
 				// otherwise.
-				V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size() * GC_ADJUST);
+				V8::AdjustAmountOfExternalAllocatedMemory(-(int)(that.this_fiber->size() * GC_ADJUST));
 
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
