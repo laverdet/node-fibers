@@ -1,6 +1,6 @@
 #include "coroutine.h"
 #include <assert.h>
-#include <node/node.h>
+#include <node.h>
 
 #include <vector>
 
