@@ -57,9 +57,6 @@ void Coroutine::set_stack_size(size_t size) {
 #ifdef CORO_PTHREAD
 	size += 1024 * 64;
 #endif
-#ifdef USE_WINFIBER
-	size += 1024 * 64;
-#endif
 	stack_size = size;
 }
 
@@ -72,7 +69,11 @@ void Coroutine::trampoline(void* that) {
 	pthread_setspecific(ceil_thread_key, that);
 #endif
 #ifdef USE_WINFIBER
-	static_cast<Coroutine*>(that)->stack_top = _AddressOfReturnAddress(); // hack for getting "bottom" of the stack.
+	// I can't figure out how to get the precise base of the stack in Windows. Since CreateFiber
+	// creates the stack automatically we don't have access to the base. We can however grab the
+	// current esp position, and use that as an approximation. Padding is added for safety since the
+	// base is slightly different.
+	static_cast<Coroutine*>(that)->stack_base = (char*)_AddressOfReturnAddress() - stack_size + 128;
 #endif
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
@@ -206,7 +207,7 @@ void* Coroutine::bottom() const {
 #ifndef USE_WINFIBER
 	return (char*)&stack[0];
 #else
-	return (void *)(size_t(stack_top) + stack_size);
+	return stack_base;
 #endif
 }
 

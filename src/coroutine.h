@@ -25,7 +25,7 @@ class Coroutine {
 #endif
 #ifdef USE_WINFIBER
 		void* context;
-		void* stack_top;
+		void* stack_base;
 #endif
 		std::vector<void*> fls_data;
 		entry_t* entry;
