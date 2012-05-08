@@ -369,7 +369,7 @@ class Fiber {
 
 				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
 				// otherwise.
-				V8::AdjustAmountOfExternalAllocatedMemory(-that.this_fiber->size() * GC_ADJUST);
+				V8::AdjustAmountOfExternalAllocatedMemory(-(int)(that.this_fiber->size() * GC_ADJUST));
 
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
@@ -389,8 +389,9 @@ class Fiber {
 		/**
 		 * Yield control back to the function that called `run()`. The first parameter to this function
 		 * is returned from `run()`. The context is saved, to be later resumed from `run()`.
+		 * note: sigh, there is a #define Yield() in WinBase.h on Windows
 		 */
-		static Handle<Value> Yield(const Arguments& args) {
+		static Handle<Value> Yield_(const Arguments& args) {
 			if (current == NULL) {
 				THROW(Exception::Error, "yield() called with no fiber running");
 			}
@@ -499,7 +500,7 @@ class Fiber {
 			proto->SetAccessor(String::NewSymbol("started"), GetStarted);
 
 			// Global yield() function
-			Handle<Function> yield = FunctionTemplate::New(Yield)->GetFunction();
+			Handle<Function> yield = FunctionTemplate::New(Yield_)->GetFunction();
 			Handle<String> sym_yield = String::NewSymbol("yield");
 			target->Set(sym_yield, yield);
 
@@ -538,3 +539,5 @@ extern "C" void init(Handle<Object> target) {
 	// Default stack size of 64kb. Perhaps make this configurable by the run time?
 	Coroutine::set_stack_size(64 * 1024);
 }
+
+NODE_MODULE(fibers, init)

@@ -1,5 +1,7 @@
 #include <stdlib.h>
+#ifdef __GNUC__ 
 #include <ext/pool_allocator.h>
+#endif
 #include <vector>
 #include "libcoro/coro.h"
 
@@ -12,7 +14,11 @@ class Coroutine {
 		// around that, as there is no constructor.
 		struct char_noinit { char x; };
 		coro_context context;
+#ifdef __GNUC__ 
 		std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
+#else
+		std::vector<char> stack;
+#endif
 		std::vector<void*> fls_data;
 		entry_t* entry;
 		void* arg;
