@@ -1,7 +1,4 @@
 #include <stdlib.h>
-#ifdef __GNUC__
-#include <ext/pool_allocator.h>
-#endif
 #include <vector>
 #ifdef USE_CORO
 #include "libcoro/coro.h"
@@ -21,21 +18,14 @@ class Coroutine {
 	private:
 #ifdef USE_CORO
 		coro_context context;
-#endif
-#ifdef USE_WINFIBER
-		void* context;
-#endif
-#ifdef __GNUC__
 		// vector<char> will 0 out the memory first which is not necessary; this hack lets us get
 		// around that, as there is no constructor.
 		struct char_noinit { char x; };
-		std::vector<char_noinit, __gnu_cxx::__pool_alloc<char_noinit> > stack;
-#else
-#ifndef USE_WINFIBER
-		std::vector<char> stack;
-#else
-		void* stack_top;
+		std::vector<char_noinit> stack;
 #endif
+#ifdef USE_WINFIBER
+		void* context;
+		void* stack_top;
 #endif
 		std::vector<void*> fls_data;
 		entry_t* entry;
