@@ -1,6 +1,17 @@
 #include "coroutine.h"
 #include <assert.h>
+#ifdef USE_CORO
 #include <pthread.h>
+#endif
+#ifdef USE_WINFIBER
+#include <windows.h>
+// Pretend Windows TLS is pthreads. Note that pthread_key_create() skips the dtor, but this doesn't
+// matter for our application.
+#define pthread_key_t DWORD
+#define pthread_key_create(x,y) (*x)=TlsAlloc()
+#define pthread_setspecific(x,y) TlsSetValue((x), (y))
+#define pthread_getspecific(x) TlsGetValue((x))
+#endif
 
 #include <stdexcept>
 #include <stack>
@@ -46,6 +57,9 @@ void Coroutine::set_stack_size(size_t size) {
 #ifdef CORO_PTHREAD
 	size += 1024 * 64;
 #endif
+#ifdef USE_WINFIBER
+	size += 1024 * 64;
+#endif
 	stack_size = size;
 }
 
@@ -57,24 +71,46 @@ void Coroutine::trampoline(void* that) {
 #ifdef CORO_PTHREAD
 	pthread_setspecific(ceil_thread_key, that);
 #endif
+#ifdef USE_WINFIBER
+	static_cast<Coroutine*>(that)->stack_top = _AddressOfReturnAddress(); // hack for getting "bottom" of the stack.
+#endif
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
 }
 
-Coroutine::Coroutine() : entry(NULL) {
+Coroutine::Coroutine() :
+	entry(NULL),
+	arg(NULL) {
+#ifdef USE_CORO
 	coro_create(&context, NULL, NULL, NULL, NULL);
+#endif
+#ifdef USE_WINFIBER
+	context = ConvertThreadToFiber(NULL);
+#endif
 }
 
 Coroutine::Coroutine(entry_t& entry, void* arg) :
+#ifndef USE_WINFIBER
 	stack(stack_size),
+#endif
 	entry(entry),
 	arg(arg) {
+#ifdef USE_CORO
 	coro_create(&context, trampoline, this, &stack[0], stack_size);
+#endif
+#ifdef USE_WINFIBER
+	context = CreateFiber(stack_size, trampoline, this);
+#endif
 }
 
 Coroutine::~Coroutine() {
+#ifdef USE_CORO
 	coro_destroy(&context);
+#endif
+#ifdef USE_WINFIBER
+	DeleteFiber(context);
+#endif
 }
 
 Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
@@ -120,7 +156,12 @@ void Coroutine::transfer(Coroutine& next) {
 	}
 	pthread_setspecific(ceil_thread_key, &next);
 #endif
+#ifdef USE_CORO
 	coro_transfer(&context, &next.context);
+#endif
+#ifdef USE_WINFIBER
+	SwitchToFiber(next.context);
+#endif
 #ifndef CORO_PTHREAD
 	pthread_setspecific(ceil_thread_key, this);
 #endif
@@ -162,7 +203,11 @@ void Coroutine::finish(Coroutine& next) {
 }
 
 void* Coroutine::bottom() const {
+#ifndef USE_WINFIBER
 	return (char*)&stack[0];
+#else
+	return (void *)(size_t(stack_top) + stack_size);
+#endif
 }
 
 size_t Coroutine::size() const {

@@ -28,23 +28,23 @@ endif
 ifeq ($(NODE_PLATFORM), linux)
 	ifeq ($(HOSTTYPE), arm)
 		# SJLJ & UCONTEXT don't work on arm (?)
-		CPPFLAGS += -DCORO_PTHREAD
+		CPPFLAGS += -DCORO_PTHREAD -DUSE_CORO
 	else
 		# SJLJ in linux = hangs & segfaults
-		CPPFLAGS += -DCORO_UCONTEXT
+		CPPFLAGS += -DCORO_UCONTEXT -DUSE_CORO
 	endif
 endif
 ifeq ($(NODE_PLATFORM), sunos)
 	# Same as Linux
-	CPPFLAGS += -DCORO_UCONTEXT
+	CPPFLAGS += -DCORO_UCONTEXT -DUSE_CORO
 endif
 ifeq ($(NODE_PLATFORM), darwin)
 	# UCONTEXT in os x = hangs & segfaults :(
-	CPPFLAGS += -DCORO_SJLJ
+	CPPFLAGS += -DCORO_SJLJ -DUSE_CORO
 endif
 ifeq ($(NODE_PLATFORM), openbsd)
-	CPPFLAGS += -DCORO_ASM
+	CPPFLAGS += -DCORO_ASM -DUSE_CORO
 endif
 ifeq ($(NODE_PLATFORM), freebsd)
-	CPPFLAGS += -DCORO_UCONTEXT
+	CPPFLAGS += -DCORO_UCONTEXT -DUSE_CORO
 endif
