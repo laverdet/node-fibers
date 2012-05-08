@@ -1,5 +1,5 @@
 // gh-20
-require('fibers');
+var Fiber = require('fibers');
 
 function main() {
 	var proc = require('child_process').spawn(process.execPath, [process.argv[1], 'child']);

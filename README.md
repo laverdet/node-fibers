@@ -37,14 +37,14 @@ other events.
 	$ cat sleep.js
 
 ```javascript
-require('fibers');
+var Fiber = require('fibers');
 
 function sleep(ms) {
 	var fiber = Fiber.current;
 	setTimeout(function() {
 		fiber.run();
 	}, ms);
-	yield();
+	Fiber.yield();
 }
 
 Fiber(function() {
@@ -69,12 +69,12 @@ event loop is never blocked while this script is running.
 	$ cat generator.js
 
 ```javascript
-require('fibers');
+var Fiber = require('fibers');
 
 var inc = Fiber(function(start) {
 	var total = start;
 	while (true) {
-		total += yield(total);
+		total += Fiber.yield(total);
 	}
 });
 
@@ -106,17 +106,17 @@ example.
 	$ cat fibonacci.js
 
 ```javascript
-require('fibers');
+var Fiber = require('fibers');
 
 // Generator function. Returns a function which returns incrementing
 // Fibonacci numbers with each call.
 function Fibonacci() {
 	// Create a new fiber which yields sequential Fibonacci numbers
 	var fiber = Fiber(function() {
-		yield(0); // F(0) -> 0
+		Fiber.yield(0); // F(0) -> 0
 		var prev = 0, curr = 1;
 		while (true) {
-			yield(curr);
+			Fiber.yield(curr);
 			var tmp = prev + curr;
 			prev = curr;
 			curr = tmp;
@@ -161,15 +161,15 @@ boundaries:
 	$ cat error.js
 
 ```javascript
-require('fibers');
+var Fiber = require('fibers');
 
 var fn = Fiber(function() {
 	console.log('async work here...');
-	yield();
+	Fiber.yield();
 	console.log('still working...');
-	yield();
+	Fiber.yield();
 	console.log('just a little bit more...');
-	yield();
+	Fiber.yield();
 	throw new Error('oh crap!');
 });
 
@@ -310,7 +310,7 @@ Fiber's definition looks something like this:
  *
  * When run() is called on this fiber for the first time, `fn` will be
  * invoked as the first frame on a new stack. Execution will continue on
- * this new stack until `fn` returns, or yield() is called.
+ * this new stack until `fn` returns, or Fiber.yield() is called.
  *
  * After the function returns the fiber is reset to original state and
  * may be restarted with another call to run().
@@ -329,9 +329,9 @@ function Fiber(fn) {
 Fiber.current = undefined;
 
 /**
- * yield() will halt execution of the current fiber and return control back
- * to original caller of run(). If an argument is supplied to yield, run()
- * will return that value.
+ * `Fiber.yield()` will halt execution of the current fiber and return control
+ * back to original caller of run(). If an argument is supplied to yield(),
+ * run() will return that value.
  *
  * When run() is called again, yield() will return.
  *
@@ -340,13 +340,12 @@ Fiber.current = undefined;
  * valid to yield from the currently running fiber anyway.
  *
  * Note also that `yield` is a reserved word in Javascript. This is normally
- * not an issue, however if using strict mode you will not be able to call
- * yield() globally. Instead call `Fiber.yield()`.
+ * not an issue, however some code linters may complain. Rest assured that it
+ * will run fine now and in future versions of Javascript.
  */
-function yield(param) {
+Fiber.yield = function(param) {
 	[native code]
 }
-Fiber.yield = yield;
 
 /**
  * run() will start execution of this Fiber, or if it is currently yielding,
@@ -408,7 +407,7 @@ application:
 var fiber = Fiber(function() {
 	while (true) {
 		try {
-			yield();
+			Fiber.yield();
 		} catch(e) {}
 	}
 });
@@ -427,7 +426,7 @@ sure that the fiber eventually unwinds. This application will leak memory:
 ```javascript
 var fiber = Fiber(function() {
 	var that = Fiber.current;
-	yield();
+	Fiber.yield();
 }
 fiber.run();
 fiber = undefined;

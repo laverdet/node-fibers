@@ -1,4 +1,4 @@
-require('fibers');
+var Fiber = require('fibers');
 try {
 	Fiber(function() {
 		function foo() {

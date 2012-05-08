@@ -1,5 +1,5 @@
 // gh-8
-require('fibers');
+var Fiber = require('fibers');
 try {
 	Fiber(function() {
 		var that = Fiber.current;

@@ -1,7 +1,7 @@
 // gh-3
-require('fibers');
+var Fiber = require('fibers');
 try {
-	yield();
+	Fiber.yield();
 } catch(err) {
 	console.log('pass');
 }

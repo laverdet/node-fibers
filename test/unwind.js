@@ -1,10 +1,10 @@
-require('fibers');
+var Fiber = require('fibers');
 
 var ii;
 var fn = Fiber(function() {
 	for (ii = 0; ii < 1000; ++ii) {
 		try {
-			yield();
+			Fiber.yield();
 		} catch (err) {}
 	}
 });

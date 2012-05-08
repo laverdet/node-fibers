@@ -1,5 +1,5 @@
 // gh-10
-require('fibers');
+var Fiber = require('fibers');
 
 var title = process.title;
 Fiber(function() {

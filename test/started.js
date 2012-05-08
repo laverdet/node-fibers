@@ -1,5 +1,5 @@
 // gh-12
-require('fibers');
+var Fiber = require('fibers');
 Fiber(function() {
 	if (!Fiber.current.started) {
 		throw new Error;

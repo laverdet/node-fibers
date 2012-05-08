@@ -1,4 +1,4 @@
-require('fibers');
+var Fiber = require('fibers');
 
 var current;
 Fiber(function() {

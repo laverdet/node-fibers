@@ -1,5 +1,5 @@
 // gh-1
-require('fibers');
+var Fiber = require('fibers');
 
 Fiber(function() {
 	require('child_process').exec('echo pass', function(err, stdout) {

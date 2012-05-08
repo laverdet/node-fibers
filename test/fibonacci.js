@@ -1,4 +1,4 @@
-require('fibers');
+var Fiber = require('fibers');
 
 function Fibonacci() {
 	return Fiber.prototype.run.bind(Fiber(function() {

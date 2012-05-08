@@ -1,4 +1,4 @@
-require('fibers');
+var Fiber = require('fibers');
 Fiber(function() {
 	console.log('pass');
 	process.exit();

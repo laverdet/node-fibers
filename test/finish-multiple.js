@@ -1,5 +1,5 @@
 // gh-16
-require('fibers');
+var Fiber = require('fibers');
 Fiber(function() {
 	Fiber(function() {
 		Fiber(function() {}).run();
