@@ -18,7 +18,6 @@ function runTest(test, cb) {
 	proc.stdin.end();
 
 	proc.on('exit', function(code) {
-		console.log(test+ ': '+ 'pass');
 		if (stdout !== 'pass\n' || stderr !== '') {
 			return cb(new Error(
 					'Test `'+ test+ '` failed.\n'+
@@ -26,6 +25,7 @@ function runTest(test, cb) {
 					'stderr: '+ stderr+ '\n'+
 					'stdout: '+ stdout));
 		}
+		console.log(test+ ': '+ 'pass');
 		cb();
 	});
 }

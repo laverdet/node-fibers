@@ -1,6 +1,12 @@
 var Fiber = require('fibers');
-Fiber(function() {
-	console.log('pass');
-	process.exit();
-}).run();
-console.log('fail');
+if (!process.stdout.write('pass\n')) {
+	process.stdout.on('drain', go);
+} else {
+	go();
+}
+function go() {
+	Fiber(function() {
+		process.exit();
+	}).run();
+	console.log('fail');
+}
