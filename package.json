@@ -1,22 +1,21 @@
 {
 	"name": "fibers",
-	"version": "0.6.6",
-	"description": "Cooperative multi-tasking for Javascript; or, the closest thing to a thread you'll see in node",
+	"version": "0.6.7",
+	"description": "Cooperative multi-tasking for Javascript",
 	"keywords": [
 		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
 	"homepage": "https://github.com/laverdet/node-fibers",
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
 	"scripts": {
-		"install": "$(which gmake || which make) clean native"
+		"install": "node ./build.js"
 	},
-	"man": "./man/fibers.1",
 	"repository": {
 		"type": "git",
 		"url": "git://github.com/laverdet/node-fibers.git"
 	},
-	"os": ["darwin", "linux", "sunos", "openbsd", "freebsd"],
 	"engines": {
 		"node": ">=0.5.2"
-	}
+	},
+	"dependencies": ['node-gyp']
 }

@@ -9,17 +9,39 @@ INSTALLING
 * You're done!
 
 ### from source
-* git clone git://github.com/laverdet/node-fibers.git
-* cd node-fibers
-* make
+* `git clone git://github.com/laverdet/node-fibers.git`
+* `cd node-fibers`
+* `node-gyp rebuild`
 
-### notes
-Only Linux, SunOS and OS X environments are supported. Windows support is
-totally possible, but I'm not going to do it for you.
+### important!
+While node-fibers is functional on node 0.6.x, it may be unstable during high
+load. This is caused by a bug in v8 which has since been fixed, but the fix will
+not be ported back to node 0.6.x. It is highly recommended that you use a more
+recent version of node if you are using node-fibers in production.
 
-node 0.6.x is required to run this release of `node-fibers`. Older versions of
+You may also consider using the 32-bit version of node as it does seem the bug
+affects 32-bit systems dramatically less, though your mileage may vary.
+
+Please see
+[v8 issue #1763](http://code.google.com/p/v8/issues/detail?id=1763) for more
+information on the specific bug.
+
+### other notes
+Unlike most NodeJS projects, node-fibers is a C++ project. Some extra work is
+required to compile node-fibers, but pretty much every platform is supported
+in some way. Binary distributions in 32 and 64-bit forms are provided in npm for
+Linux, OS X, and Windows (special thanks to
+[Jeroen Janssen](https://github.com/japj) for his work on fibers in Windows).
+
+Support for Solaris, FreeBSD, and OpenBSD is provided by compiling the extension
+on your system during install time via
+[node-gyp](https://github.com/TooTallNate/node-gyp). If your operating system
+isn't listed here you may have luck copying the build process for one of the
+other OS's, assuming you are running a POSIX-like OS.
+
+node 0.6.x is required to run this release of node-fibers. Older versions of
 node (0.4.x) are supported in older releases of node-fibers. See the 0.5.x
-branch of `node-fibers` for documentation.
+branch of node-fibers for documentation.
 
 
 EXAMPLES
