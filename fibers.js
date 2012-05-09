@@ -1,7 +1,7 @@
 var fs = require('fs'), path = require('path');
 
 // Look for binary for this platform
-var modPath = path.join(__dirname, 'bin', 'fibers-'+ process.platform+ '-'+ process.arch);
+var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch, 'fibers');
 try {
 	fs.statSync(modPath+ '.node');
 } catch (ex) {

@@ -5,7 +5,7 @@ var spawn = require('child_process').spawn,
 
 // Parse args
 var force = false;
-var arch = process.arch;
+var arch = process.arch, platform = process.platform;
 var args = process.argv.slice(2).filter(function(arg) {
 	if (arg === '-f') {
 		force = true;
@@ -21,17 +21,22 @@ if (!{ia32: true, x64: true, arm: true}.hasOwnProperty(arch)) {
 }
 
 // Test for pre-built library
-var file = 'fibers-'+ process.platform+ '-'+ arch+ '.node';
+var modPath = platform+ '-'+ arch;
+var target = 'fibers-'+ modPath+ '.node';
 if (!force) {
 	try {
-		fs.statSync(path.join(__dirname, 'bin', file));
-		console.log('`'+ file+ '` exists; skipping build');
+		fs.statSync(path.join(__dirname, 'bin', modPath, 'fibers.node'));
+		console.log('`'+ modPath+ '` exists; skipping build');
 		return process.exit();
 	} catch (ex) {}
 }
 
 // Build it
-spawn('./node_modules/node-gyp/bin/node-gyp.js', ['rebuild'].concat(args), {customFds: [0, 1, 2]}).on('exit', function(err) {
+spawn(
+	'node',
+	['./node_modules/node-gyp/bin/node-gyp.js', 'rebuild'].concat(args),
+	{customFds: [0, 1, 2]})
+.on('exit', function(err) {
 	if (err) {
 		console.error('Build failed');
 		return process.exit(err);
@@ -41,14 +46,19 @@ spawn('./node_modules/node-gyp/bin/node-gyp.js', ['rebuild'].concat(args), {cust
 
 // Move it to expected location
 function afterBuild() {
-	var target = path.join(__dirname, 'build', 'Release', file);
-	var install = path.join(__dirname, 'bin', file);
+	var targetPath = path.join(__dirname, 'build', 'Release', target);
+	var installPath = path.join(__dirname, 'bin', modPath, 'fibers.node');
+
 	try {
-		fs.statSync(target);
+		fs.mkdirSync(path.join(__dirname, 'bin', modPath));
+	} catch (ex) {}
+
+	try {
+		fs.statSync(targetPath);
 	} catch (ex) {
 		console.error('Build succeeded but `'+ target+ '` not found');
 		process.exit(1);
 	}
-	fs.renameSync(target, install);
-	console.log('Installed in `'+ install+ '`');
+	fs.renameSync(targetPath, installPath);
+	console.log('Installed in `'+ installPath+ '`');
 }
