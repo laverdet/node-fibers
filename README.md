@@ -11,20 +11,23 @@ INSTALLING
 ### from source
 * `git clone git://github.com/laverdet/node-fibers.git`
 * `cd node-fibers`
-* `node-gyp rebuild`
+* `npm install`
+
+Note: node-fibers uses [node-gyp](https://github.com/TooTallNate/node-gyp) for
+building. To manually invoke the build process, you can use `node-gyp rebuild`.
+This will put the compiled extension into, for example,
+`build/Release/fibers-linux-x64.node`. However, when you do `require('fibers')`,
+it will expect the module to be in `bin/linux-x64/fibers.node`. You can manually
+put the module here every time you build, or you can use the included build
+script. Either `npm install` or `node build -f` will do this for you. If you are
+going to be hacking on node-fibers, it may be worthwhile to first do
+`node-gyp configure` and then for subsequent rebuilds you can just do
+`node-gyp build` which will be faster than a full `npm install` or
+`node-gyp rebuild`.
 
 ### important!
-While node-fibers is functional on node 0.6.x, it may be unstable during high
-load. This is caused by a bug in v8 which has since been fixed, but the fix will
-not be ported back to node 0.6.x. It is highly recommended that you use a more
-recent version of node if you are using node-fibers in production.
-
-You may also consider using the 32-bit version of node as it does seem the bug
-affects 32-bit systems dramatically less, though your mileage may vary.
-
-Please see
-[v8 issue #1763](http://code.google.com/p/v8/issues/detail?id=1763) for more
-information on the specific bug.
+It's recommended that you use node 0.6.18 or higher with node-fibers. Using
+other versions may lead to instability during high loads.
 
 ### other notes
 Unlike most NodeJS projects, node-fibers is a C++ project. Some extra work is
