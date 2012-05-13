@@ -17,6 +17,5 @@
 	},
 	"engines": {
 		"node": ">=0.5.2"
-	},
-	"dependencies": {"node-gyp": "*"}
+	}
 }
