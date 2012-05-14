@@ -6,6 +6,7 @@
 		# Replace gyp platform with node platform, blech
 		['platform == "mac"', {'variables': {'platform': 'darwin'}}],
 		['platform == "win"', {'variables': {'platform': 'win32'}}],
+		['platform == "solaris"', {'variables': {'platform': 'sunos'}}],
 	],
 	'targets': [
 		{

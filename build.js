@@ -33,8 +33,8 @@ if (!force) {
 
 // Build it
 spawn(
-	'node',
-	['./node_modules/node-gyp/bin/node-gyp.js', 'rebuild'].concat(args),
+	'node-gyp',
+	['rebuild'].concat(args),
 	{customFds: [0, 1, 2]})
 .on('exit', function(err) {
 	if (err) {
