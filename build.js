@@ -5,7 +5,10 @@ var spawn = require('child_process').spawn,
 
 // Parse args
 var force = false;
-var arch = process.arch, platform = process.platform;
+var
+	arch = process.arch,
+	platform = process.platform,
+	v8 = /[0-9]+\.[0-9]+/.exec(process.versions.v8)[0];
 var args = process.argv.slice(2).filter(function(arg) {
 	if (arg === '-f') {
 		force = true;
@@ -21,8 +24,7 @@ if (!{ia32: true, x64: true, arm: true}.hasOwnProperty(arch)) {
 }
 
 // Test for pre-built library
-var modPath = platform+ '-'+ arch;
-var target = 'fibers-'+ modPath+ '.node';
+var modPath = platform+ '-'+ arch+ '-v8-'+ v8;
 if (!force) {
 	try {
 		fs.statSync(path.join(__dirname, 'bin', modPath, 'fibers.node'));
@@ -46,7 +48,7 @@ spawn(
 
 // Move it to expected location
 function afterBuild() {
-	var targetPath = path.join(__dirname, 'build', 'Release', target);
+	var targetPath = path.join(__dirname, 'build', 'Release', 'fibers.node');
 	var installPath = path.join(__dirname, 'bin', modPath, 'fibers.node');
 
 	try {
@@ -56,7 +58,7 @@ function afterBuild() {
 	try {
 		fs.statSync(targetPath);
 	} catch (ex) {
-		console.error('Build succeeded but `'+ target+ '` not found');
+		console.error('Build succeeded but target not found');
 		process.exit(1);
 	}
 	fs.renameSync(targetPath, installPath);

@@ -15,15 +15,14 @@ INSTALLING
 
 Note: node-fibers uses [node-gyp](https://github.com/TooTallNate/node-gyp) for
 building. To manually invoke the build process, you can use `node-gyp rebuild`.
-This will put the compiled extension into, for example,
-`build/Release/fibers-linux-x64.node`. However, when you do `require('fibers')`,
-it will expect the module to be in `bin/linux-x64/fibers.node`. You can manually
-put the module here every time you build, or you can use the included build
-script. Either `npm install` or `node build -f` will do this for you. If you are
-going to be hacking on node-fibers, it may be worthwhile to first do
-`node-gyp configure` and then for subsequent rebuilds you can just do
-`node-gyp build` which will be faster than a full `npm install` or
-`node-gyp rebuild`.
+This will put the compiled extension in `build/Release/fibers.node`. However,
+when you do `require('fibers')`, it will expect the module to be in, for
+example, `bin/linux-x64-v8-3.11/fibers.node`. You can manually put the module
+here every time you build, or you can use the included build script. Either
+`npm install` or `node build -f` will do this for you. If you are going to be
+hacking on node-fibers, it may be worthwhile to first do `node-gyp configure`
+and then for subsequent rebuilds you can just do `node-gyp build` which will
+be faster than a full `npm install` or `node-gyp rebuild`.
 
 ### important!
 It's recommended that you use node 0.6.18 or higher with node-fibers. Using

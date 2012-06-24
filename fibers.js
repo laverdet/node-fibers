@@ -1,7 +1,8 @@
 var fs = require('fs'), path = require('path');
 
 // Look for binary for this platform
-var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch, 'fibers');
+var v8 = 'v8-'+ /[0-9]+\.[0-9]+/.exec(process.versions.v8)[0];
+var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ v8, 'fibers');
 try {
 	fs.statSync(modPath+ '.node');
 } catch (ex) {

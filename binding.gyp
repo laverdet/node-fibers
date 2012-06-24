@@ -1,16 +1,7 @@
 {
-	'variables': {
-		'platform': '<(OS)',
-	},
-	'conditions': [
-		# Replace gyp platform with node platform, blech
-		['platform == "mac"', {'variables': {'platform': 'darwin'}}],
-		['platform == "win"', {'variables': {'platform': 'win32'}}],
-		['platform == "solaris"', {'variables': {'platform': 'sunos'}}],
-	],
 	'targets': [
 		{
-			'target_name': 'fibers-<(platform)-<(target_arch)',
+			'target_name': 'fibers',
 			'sources': [
 				'src/fibers.cc',
 				'src/coroutine.cc',
