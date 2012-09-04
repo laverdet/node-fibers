@@ -1,3 +1,4 @@
+[![build status](https://secure.travis-ci.org/laverdet/node-fibers.png)](http://travis-ci.org/laverdet/node-fibers)
 fibers(1) -- Fiber support for v8 and Node
 ==========================================
 
