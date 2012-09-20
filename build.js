@@ -48,19 +48,28 @@ spawn(
 
 // Move it to expected location
 function afterBuild() {
-	var targetPath = path.join(__dirname, 'build', 'Release', 'fibers.node');
-	var installPath = path.join(__dirname, 'bin', modPath, 'fibers.node');
+        var targetPath = [path.join(__dirname, 'build', 'Release', 'fibers.node'),
+                          path.join(__dirname, 'build', 'Debug', 'fibers.node')],
+            target,
+            installPath = path.join(__dirname, 'bin', modPath, 'fibers.node');
 
-	try {
-		fs.mkdirSync(path.join(__dirname, 'bin', modPath));
-	} catch (ex) {}
+        try {
+                fs.mkdirSync(path.join(__dirname, 'bin', modPath));
+        } catch (ex) {}
 
-	try {
-		fs.statSync(targetPath);
-	} catch (ex) {
-		console.error('Build succeeded but target not found');
-		process.exit(1);
-	}
-	fs.renameSync(targetPath, installPath);
-	console.log('Installed in `'+ installPath+ '`');
+        try {
+                while(true) {
+                        target = targetPath.pop();
+                        if((fs.existsSync||path.existsSync)(target))
+                                break;
+                        else if(!targetPath.length)
+                                throw new Error('Build succeeded but target not found');
+                }
+        } catch (ex) {
+                console.error(ex.message);
+                process.exit(1);
+        }
+        fs.renameSync(target, installPath);
+        console.log('Installed in `'+ installPath+ '`');
 }
+
