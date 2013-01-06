@@ -533,9 +533,8 @@ extern "C" void init(Handle<Object> target) {
 	}
 	did_init = true;
 	HandleScope scope;
-	Handle<Object> global = Context::GetCurrent()->Global();
 	Coroutine::init();
-	Fiber::Init(global);
+	Fiber::Init(target);
 	// Default stack size of 64kb. Perhaps make this configurable by the run time?
 	Coroutine::set_stack_size(64 * 1024);
 }

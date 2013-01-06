@@ -13,6 +13,5 @@ try {
 	throw new Error('`'+ modPath+ '.node` is missing. Try reinstalling `node-fibers`?');
 }
 
-// Injects `Fiber` and `yield` in to global scope (for now)
-require(modPath);
-module.exports = Fiber;
+// Pull in fibers implementation
+module.exports = require(modPath).Fiber;
