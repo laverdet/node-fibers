@@ -336,7 +336,7 @@ class Fiber {
 				// to run
 				ResourceConstraints constraints;
 				constraints.set_stack_limit(reinterpret_cast<uint32_t*>(
-					(char*)that.this_fiber->bottom() + 2 * 1024));
+					(char*)that.this_fiber->bottom() + 4 * 1024));
 				SetResourceConstraints(&constraints);
 
 				TryCatch try_catch;
