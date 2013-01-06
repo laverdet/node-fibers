@@ -40,7 +40,14 @@ spawn(
 	{customFds: [0, 1, 2]})
 .on('exit', function(err) {
 	if (err) {
-		console.error('Build failed');
+		if (err === 127) {
+			console.error(
+				'node-gyp not found! Please upgrade your install of npm! You need at least 1.1.5 (I think) '+
+				'and preferably 1.1.30.'
+			);
+		} else {
+			console.error('Build failed');
+		}
 		return process.exit(err);
 	}
 	afterBuild();
