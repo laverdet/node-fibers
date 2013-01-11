@@ -1,9 +1,8 @@
 #include "coroutine.h"
 #include <assert.h>
-#ifdef USE_CORO
+#ifndef WINDOWS
 #include <pthread.h>
-#endif
-#ifdef USE_WINFIBER
+#else
 #include <windows.h>
 // Pretend Windows TLS is pthreads. Note that pthread_key_create() skips the dtor, but this doesn't
 // matter for our application.
@@ -65,7 +64,7 @@ void Coroutine::trampoline(void* that) {
 #ifdef CORO_PTHREAD
 	pthread_setspecific(ceil_thread_key, that);
 #endif
-#ifdef USE_WINFIBER
+#ifdef CORO_FIBER
 	// I can't figure out how to get the precise base of the stack in Windows. Since CreateFiber
 	// creates the stack automatically we don't have access to the base. We can however grab the
 	// current esp position, and use that as an approximation. Padding is added for safety since the
@@ -80,37 +79,22 @@ void Coroutine::trampoline(void* that) {
 Coroutine::Coroutine() :
 	entry(NULL),
 	arg(NULL) {
-#ifdef USE_CORO
 	stack.sptr = NULL;
 	coro_create(&context, NULL, NULL, NULL, 0);
-#endif
-#ifdef USE_WINFIBER
-	context = ConvertThreadToFiber(NULL);
-#endif
 }
 
 Coroutine::Coroutine(entry_t& entry, void* arg) :
 	entry(entry),
 	arg(arg) {
-#ifdef USE_CORO
 	coro_stack_alloc(&stack, stack_size);
 	coro_create(&context, trampoline, this, stack.sptr, stack.ssze);
-#endif
-#ifdef USE_WINFIBER
-	context = CreateFiber(stack_size * sizeof(void*), trampoline, this);
-#endif
 }
 
 Coroutine::~Coroutine() {
-#ifdef USE_CORO
 	if (stack.sptr) {
 		coro_stack_free(&stack);
 	}
 	(void)coro_destroy(&context);
-#endif
-#ifdef USE_WINFIBER
-	DeleteFiber(context);
-#endif
 }
 
 Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
@@ -156,12 +140,7 @@ void Coroutine::transfer(Coroutine& next) {
 	}
 	pthread_setspecific(ceil_thread_key, &next);
 #endif
-#ifdef USE_CORO
 	coro_transfer(&context, &next.context);
-#endif
-#ifdef USE_WINFIBER
-	SwitchToFiber(next.context);
-#endif
 #ifndef CORO_PTHREAD
 	pthread_setspecific(ceil_thread_key, this);
 #endif
@@ -203,10 +182,10 @@ void Coroutine::finish(Coroutine& next) {
 }
 
 void* Coroutine::bottom() const {
-#ifndef USE_WINFIBER
-	return stack.sptr;
-#else
+#ifdef CORO_FIBER
 	return stack_base;
+#else
+	return stack.sptr;
 #endif
 }
 

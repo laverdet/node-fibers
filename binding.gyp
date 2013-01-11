@@ -13,7 +13,7 @@
 			'cflags!': ['-ansi'],
 			'conditions': [
 				['OS == "win"',
-					{'defines': ['USE_WINFIBER']},
+					{'defines': ['CORO_FIBER', 'WINDOWS']},
 				# else
 					{
 						'cflags': ['-Wno-deprecated-declarations'],

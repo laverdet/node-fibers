@@ -1,29 +1,17 @@
 #include <stdlib.h>
 #include <vector>
-#ifdef USE_CORO
 #include "libcoro/coro.h"
-#define TRAMPOLINECALLBACK
-#endif
-#ifdef USE_WINFIBER
-#ifdef CORO_PTHREAD
-#error can not USE_WINFIBER and CORO_PTHREAD
-#endif
-#define TRAMPOLINECALLBACK __stdcall
-#endif
 
 class Coroutine {
 	public:
 		typedef void(entry_t)(void*);
 
 	private:
-#ifdef USE_CORO
-		coro_context context;
-		coro_stack stack;
-#endif
-#ifdef USE_WINFIBER
-		void* context;
+#ifdef CORO_FIBER
 		void* stack_base;
 #endif
+		coro_context context;
+		coro_stack stack;
 		std::vector<void*> fls_data;
 		entry_t* entry;
 		void* arg;
@@ -48,7 +36,7 @@ class Coroutine {
 		 */
 		void reset(entry_t* entry, void* arg);
 
-		static void TRAMPOLINECALLBACK trampoline(void* that);
+		static void trampoline(void* that);
 		void transfer(Coroutine& next);
 
 	public:
