@@ -332,11 +332,12 @@ class Fiber {
 				Isolate::Scope isolate_scope(that.isolate);
 				HandleScope scope;
 
-				// Set the stack guard for this "thread"; allow 2k of padding past the JS limit for C++ code
-				// to run
+				// Set the stack guard for this "thread"; allow 128k or 256k of padding past the JS limit for
+				// native v8 code to run
 				ResourceConstraints constraints;
 				constraints.set_stack_limit(reinterpret_cast<uint32_t*>(
-					(char*)that.this_fiber->bottom() + 4 * 1024));
+					(size_t*)that.this_fiber->bottom() + 32 * 1024
+				));
 				SetResourceConstraints(&constraints);
 
 				TryCatch try_catch;
@@ -535,8 +536,8 @@ extern "C" void init(Handle<Object> target) {
 	HandleScope scope;
 	Coroutine::init();
 	Fiber::Init(target);
-	// Default stack size of 64kb. Perhaps make this configurable by the run time?
-	Coroutine::set_stack_size(64 * 1024);
+	// Default stack size of either 512k or 1M. Perhaps make this configurable by the run time?
+	Coroutine::set_stack_size(128 * 1024);
 }
 
 NODE_MODULE(fibers, init)

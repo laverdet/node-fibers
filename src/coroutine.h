@@ -18,10 +18,7 @@ class Coroutine {
 	private:
 #ifdef USE_CORO
 		coro_context context;
-		// vector<char> will 0 out the memory first which is not necessary; this hack lets us get
-		// around that, as there is no constructor.
-		struct char_noinit { char x; };
-		std::vector<char_noinit> stack;
+		coro_stack stack;
 #endif
 #ifdef USE_WINFIBER
 		void* context;
@@ -74,9 +71,10 @@ class Coroutine {
 
 		/**
 		 * Set the size of coroutines created by this library. Since coroutines are pooled the stack
-		 * size is global instead of per-coroutine.
+		 * size is global instead of per-coroutine. Stack is measured in sizeof(void*), so
+		 * set_stack_size(128) -> 512 bytes or 1kb
 		 */
-		static void set_stack_size(size_t size);
+		static void set_stack_size(unsigned int size);
 
 		/**
 		 * Get the number of coroutines that have been created.

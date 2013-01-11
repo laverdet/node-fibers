@@ -20,8 +20,8 @@
 #include <iostream>
 using namespace std;
 
-static pthread_key_t floor_thread_key = NULL;
-static pthread_key_t ceil_thread_key = NULL;
+static pthread_key_t floor_thread_key = 0;
+static pthread_key_t ceil_thread_key = 0;
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
@@ -52,11 +52,8 @@ Coroutine& Coroutine::current() {
 	return *current;
 }
 
-void Coroutine::set_stack_size(size_t size) {
+void Coroutine::set_stack_size(unsigned int size) {
 	assert(!stack_size);
-#ifdef CORO_PTHREAD
-	size += 1024 * 64;
-#endif
 	stack_size = size;
 }
 
@@ -73,7 +70,7 @@ void Coroutine::trampoline(void* that) {
 	// creates the stack automatically we don't have access to the base. We can however grab the
 	// current esp position, and use that as an approximation. Padding is added for safety since the
 	// base is slightly different.
-	static_cast<Coroutine*>(that)->stack_base = (char*)_AddressOfReturnAddress() - stack_size + 128;
+	static_cast<Coroutine*>(that)->stack_base = (size_t*)_AddressOfReturnAddress() - stack_size + 16;
 #endif
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
@@ -84,7 +81,8 @@ Coroutine::Coroutine() :
 	entry(NULL),
 	arg(NULL) {
 #ifdef USE_CORO
-	coro_create(&context, NULL, NULL, NULL, NULL);
+	stack.sptr = NULL;
+	coro_create(&context, NULL, NULL, NULL, 0);
 #endif
 #ifdef USE_WINFIBER
 	context = ConvertThreadToFiber(NULL);
@@ -92,22 +90,23 @@ Coroutine::Coroutine() :
 }
 
 Coroutine::Coroutine(entry_t& entry, void* arg) :
-#ifndef USE_WINFIBER
-	stack(stack_size),
-#endif
 	entry(entry),
 	arg(arg) {
 #ifdef USE_CORO
-	coro_create(&context, trampoline, this, &stack[0], stack_size);
+	coro_stack_alloc(&stack, stack_size);
+	coro_create(&context, trampoline, this, stack.sptr, stack.ssze);
 #endif
 #ifdef USE_WINFIBER
-	context = CreateFiber(stack_size, trampoline, this);
+	context = CreateFiber(stack_size * sizeof(void*), trampoline, this);
 #endif
 }
 
 Coroutine::~Coroutine() {
 #ifdef USE_CORO
-	coro_destroy(&context);
+	if (stack.sptr) {
+		coro_stack_free(&stack);
+	}
+	(void)coro_destroy(&context);
 #endif
 #ifdef USE_WINFIBER
 	DeleteFiber(context);
@@ -205,12 +204,12 @@ void Coroutine::finish(Coroutine& next) {
 
 void* Coroutine::bottom() const {
 #ifndef USE_WINFIBER
-	return (char*)&stack[0];
+	return stack.sptr;
 #else
 	return stack_base;
 #endif
 }
 
 size_t Coroutine::size() const {
-	return sizeof(Coroutine) + stack_size;
+	return sizeof(Coroutine) + stack_size * sizeof(void*);
 }

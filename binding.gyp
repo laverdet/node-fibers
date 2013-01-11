@@ -17,7 +17,7 @@
 				# else
 					{
 						'cflags': ['-Wno-deprecated-declarations'],
-						'defines': ['USE_CORO'],
+						'defines': ['USE_CORO', 'CORO_GUARDPAGES=1'],
 						'ldflags': ['-pthread'],
 					}
 				],
