@@ -168,8 +168,10 @@ Future.prototype = {
 						ref[0](undefined, value);
 					}
 				} catch(ex) {
-					console.log(String(ex.stack || ex.message || ex));
-					process.exit(1);
+					// console.log('Resolve cb threw', String(ex.stack || ex.message || ex));
+					process.nextTick(function() {
+						throw(ex);
+					});
 				}
 			}
 		}
@@ -199,8 +201,10 @@ Future.prototype = {
 						ref[0](error);
 					}
 				} catch(ex) {
-					console.log(ex.stack || ex);
-					process.exit(1);
+					// console.log('Resolve cb threw', String(ex.stack || ex.message || ex));
+					process.nextTick(function() {
+						throw(ex);
+					});
 				}
 			}
 		}
