@@ -4,23 +4,26 @@
 #include <pthread.h>
 #else
 #include <windows.h>
-// Pretend Windows TLS is pthreads. Note that pthread_key_create() skips the dtor, but this doesn't
-// matter for our application.
+// Stub pthreads into Windows approximations
+#define pthread_t HANDLE
+#define pthread_create(thread, attr, fn, arg) CreateThread(NULL, 0, &(fn), NULL, 0, NULL)
+#define pthread_join(thread, arg) WaitForSingleObject((thread), INFINITE)
 #define pthread_key_t DWORD
-#define pthread_key_create(x,y) (*x)=TlsAlloc()
-#define pthread_setspecific(x,y) TlsSetValue((x), (y))
-#define pthread_getspecific(x) TlsGetValue((x))
+#define pthread_key_create(key, dtor) (*key)=TlsAlloc()
+#define pthread_setspecific(key, val) TlsSetValue((key), (val))
+#define pthread_getspecific(key) TlsGetValue((key))
 #endif
 
 #include <stdexcept>
 #include <stack>
 #include <vector>
-
-#include <iostream>
+#include <node.h>
 using namespace std;
 
+const size_t v8_tls_keys = 3;
 static pthread_key_t floor_thread_key = 0;
 static pthread_key_t ceil_thread_key = 0;
+static pthread_key_t coro_thread_key = 0;
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
@@ -28,25 +31,44 @@ static vector<Coroutine*> fiber_pool;
 static Coroutine* delete_me = NULL;
 size_t Coroutine::pool_size = 120;
 
+#ifndef WINDOWS
+static void* find_thread_id_key(void* arg)
+#else
+DWORD find_thread_id_key(LPVOID arg)
+#endif
+{
+	v8::Locker locker;
+	for (pthread_key_t ii = coro_thread_key - 1; ii > (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
+		if (ceil_thread_key) {
+			if (pthread_getspecific(ii)) {
+				floor_thread_key = ii;
+			} else {
+				break;
+			}
+		} else if (pthread_getspecific(ii)) {
+			ceil_thread_key = ii;
+		}
+	}
+	assert(ceil_thread_key - floor_thread_key + 1 == v8_tls_keys);
+}
+
 /**
  * Coroutine class definition
  */
 void Coroutine::init() {
-	pthread_key_create(&ceil_thread_key, NULL);
-	pthread_setspecific(ceil_thread_key, &current());
-	// Assume that v8 registered their TLS keys within the past 5 keys.. if not there's trouble.
-	if (ceil_thread_key > 5) {
-		floor_thread_key = ceil_thread_key - 5;
-	} else {
-		floor_thread_key = 0;
-	}
+	v8::Unlocker unlocker;
+	pthread_key_create(&coro_thread_key, NULL);
+	pthread_setspecific(coro_thread_key, &current());
+	pthread_t thread;
+	pthread_create(&thread, NULL, find_thread_id_key, NULL);
+	pthread_join(thread, NULL);
 }
 
 Coroutine& Coroutine::current() {
-	Coroutine* current = static_cast<Coroutine*>(pthread_getspecific(ceil_thread_key));
+	Coroutine* current = static_cast<Coroutine*>(pthread_getspecific(coro_thread_key));
 	if (!current) {
 		current = new Coroutine;
-		pthread_setspecific(ceil_thread_key, current);
+		pthread_setspecific(coro_thread_key, current);
 	}
 	return *current;
 }
@@ -62,7 +84,7 @@ size_t Coroutine::coroutines_created() {
 
 void Coroutine::trampoline(void* that) {
 #ifdef CORO_PTHREAD
-	pthread_setspecific(ceil_thread_key, that);
+	pthread_setspecific(coro_thread_key, that);
 #endif
 #ifdef CORO_FIBER
 	// I can't figure out how to get the precise base of the stack in Windows. Since CreateFiber
@@ -77,6 +99,7 @@ void Coroutine::trampoline(void* that) {
 }
 
 Coroutine::Coroutine() :
+	fls_data(v8_tls_keys),
 	entry(NULL),
 	arg(NULL) {
 	stack.sptr = NULL;
@@ -84,6 +107,7 @@ Coroutine::Coroutine() :
 }
 
 Coroutine::Coroutine(entry_t& entry, void* arg) :
+	fls_data(v8_tls_keys),
 	entry(entry),
 	arg(arg) {
 	coro_stack_alloc(&stack, stack_size);
@@ -118,31 +142,17 @@ void Coroutine::transfer(Coroutine& next) {
 	assert(this != &next);
 #ifndef CORO_PTHREAD
 	{
-		for (pthread_key_t ii = ceil_thread_key - 1; ii > floor_thread_key; --ii) {
-			// Capture current thread specifics
-			void* data = pthread_getspecific(ii);
-			if (fls_data.size() >= ii - floor_thread_key) {
-				fls_data[ii - floor_thread_key - 1] = data;
-			} else if (data) {
-				fls_data.resize(ii - floor_thread_key);
-				fls_data[ii - floor_thread_key - 1] = data;
-			}
-
-			// Replace current thread specifics
-			if (next.fls_data.size() >= ii - floor_thread_key) {
-				if (data != next.fls_data[ii - floor_thread_key - 1]) {
-					pthread_setspecific(ii, next.fls_data[ii - floor_thread_key - 1]);
-				}
-			} else if (data) {
-				pthread_setspecific(ii, NULL);
-			}
+		for (pthread_key_t ii = floor_thread_key; ii <= ceil_thread_key; ++ii) {
+			// Swap TLS keys with fiber locals
+			fls_data[ii - floor_thread_key] = pthread_getspecific(ii);
+			pthread_setspecific(ii, next.fls_data[ii - floor_thread_key]);
 		}
 	}
-	pthread_setspecific(ceil_thread_key, &next);
+	pthread_setspecific(coro_thread_key, &next);
 #endif
 	coro_transfer(&context, &next.context);
 #ifndef CORO_PTHREAD
-	pthread_setspecific(ceil_thread_key, this);
+	pthread_setspecific(coro_thread_key, this);
 #endif
 }
 
