@@ -1,12 +1,13 @@
 #include "coroutine.h"
 #include <assert.h>
+#include <node.h>
 #ifndef WINDOWS
 #include <pthread.h>
 #else
 #include <windows.h>
 // Stub pthreads into Windows approximations
 #define pthread_t HANDLE
-#define pthread_create(thread, attr, fn, arg) CreateThread(NULL, 0, &(fn), NULL, 0, NULL)
+#define pthread_create(thread, attr, fn, arg) !((*thread)=CreateThread(NULL, 0, &(fn), NULL, 0, NULL))
 #define pthread_join(thread, arg) WaitForSingleObject((thread), INFINITE)
 #define pthread_key_t DWORD
 #define pthread_key_create(key, dtor) (*key)=TlsAlloc()
@@ -17,7 +18,6 @@
 #include <stdexcept>
 #include <stack>
 #include <vector>
-#include <node.h>
 using namespace std;
 
 const size_t v8_tls_keys = 3;
@@ -50,6 +50,7 @@ DWORD find_thread_id_key(LPVOID arg)
 		}
 	}
 	assert(ceil_thread_key - floor_thread_key + 1 == v8_tls_keys);
+	return NULL;
 }
 
 /**
