@@ -34,22 +34,21 @@ size_t Coroutine::pool_size = 120;
 #ifndef WINDOWS
 static void* find_thread_id_key(void* arg)
 #else
-DWORD find_thread_id_key(LPVOID arg)
+static DWORD __stdcall find_thread_id_key(LPVOID arg)
 #endif
 {
 	v8::Locker locker;
+	v8::Isolate* isolate = v8::Isolate::GetCurrent();
+	assert(isolate != NULL);
+	floor_thread_key = 0;
 	for (pthread_key_t ii = coro_thread_key - 1; ii > (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
-		if (ceil_thread_key) {
-			if (pthread_getspecific(ii)) {
-				floor_thread_key = ii;
-			} else {
-				break;
-			}
-		} else if (pthread_getspecific(ii)) {
-			ceil_thread_key = ii;
+		if (pthread_getspecific(ii) == isolate) {
+			floor_thread_key = ii;
+			break;
 		}
 	}
-	assert(ceil_thread_key - floor_thread_key + 1 == v8_tls_keys);
+	assert(floor_thread_key != 0);
+	ceil_thread_key = floor_thread_key + v8_tls_keys - 1;
 	return NULL;
 }
 
