@@ -17,6 +17,12 @@
 using namespace std;
 using namespace v8;
 
+#define NEWAPI
+#ifdef NEWAPI
+#	define SetPointerInInternalField SetAlignedPointerInInternalField
+#	define GetPointerFromInternalField GetAlignedPointerFromInternalField
+#endif
+
 class Fiber {
 #define Unwrap(target, handle) \
 	assert(!handle.IsEmpty()); \
@@ -70,7 +76,11 @@ class Fiber {
 		 * i.e. After fiber completes, while yielded, or before started
 		 */
 		void MakeWeak() {
+#ifdef NEWAPI
+			handle.MakeWeak(Isolate::GetCurrent(), this, WeakCallback);
+#else
 			handle.MakeWeak(this, WeakCallback);
+#endif
 		}
 
 		/**
@@ -86,7 +96,11 @@ class Fiber {
 		 * the fiber is currently suspended we'll unwind the fiber's stack by throwing exceptions in
 		 * order to clear all references.
 		 */
+#ifdef NEWAPI
+		static void WeakCallback(Isolate* isolate, Persistent<Value> value, void* data) {
+#else
 		static void WeakCallback(Persistent<Value> value, void* data) {
+#endif
 			Fiber& that = *static_cast<Fiber*>(data);
 			assert(that.handle == value);
 			assert(value.IsNearDeath());
