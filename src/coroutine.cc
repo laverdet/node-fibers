@@ -39,14 +39,14 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	v8::Isolate* isolate = static_cast<v8::Isolate*>(arg);
 	v8::Locker locker(isolate);
 	assert(isolate != NULL);
-	floor_thread_key = 0;
-	for (pthread_key_t ii = coro_thread_key - 1; ii > (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
+	floor_thread_key = 0x7777;
+	for (pthread_key_t ii = coro_thread_key - 1; ii >= (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
 		if (pthread_getspecific(ii) == isolate) {
 			floor_thread_key = ii;
 			break;
 		}
 	}
-	assert(floor_thread_key != 0);
+	assert(floor_thread_key != 0x7777);
 	ceil_thread_key = floor_thread_key + v8_tls_keys - 1;
 	return NULL;
 }
