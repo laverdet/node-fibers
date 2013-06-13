@@ -113,8 +113,8 @@ class Fiber {
 		bool resetting;
 
 		static Fiber& Unwrap(Handle<Object> handle) {
-			assert(!handle.IsEmpty()); \
-			assert(handle->InternalFieldCount() == 1); \
+			assert(!handle.IsEmpty());
+			assert(handle->InternalFieldCount() == 1);
 			return *static_cast<Fiber*>(uni::GetInternalPointer(handle, 0));
 		}
 
