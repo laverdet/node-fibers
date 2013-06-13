@@ -1,13 +1,12 @@
 #include "coroutine.h"
 #include <assert.h>
-#include <node.h>
 #ifndef WINDOWS
 #include <pthread.h>
 #else
 #include <windows.h>
 // Stub pthreads into Windows approximations
 #define pthread_t HANDLE
-#define pthread_create(thread, attr, fn, arg) !((*thread)=CreateThread(NULL, 0, &(fn), NULL, 0, NULL))
+#define pthread_create(thread, attr, fn, arg) !((*thread)=CreateThread(NULL, 0, &(fn), arg, 0, NULL))
 #define pthread_join(thread, arg) WaitForSingleObject((thread), INFINITE)
 #define pthread_key_t DWORD
 #define pthread_key_create(key, dtor) (*key)=TlsAlloc()
@@ -37,8 +36,8 @@ static void* find_thread_id_key(void* arg)
 static DWORD __stdcall find_thread_id_key(LPVOID arg)
 #endif
 {
-	v8::Locker locker;
-	v8::Isolate* isolate = v8::Isolate::GetCurrent();
+	v8::Isolate* isolate = static_cast<v8::Isolate*>(arg);
+	v8::Locker locker(isolate);
 	assert(isolate != NULL);
 	floor_thread_key = 0;
 	for (pthread_key_t ii = coro_thread_key - 1; ii > (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
@@ -55,12 +54,12 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 /**
  * Coroutine class definition
  */
-void Coroutine::init() {
-	v8::Unlocker unlocker;
+void Coroutine::init(v8::Isolate* isolate) {
+	v8::Unlocker unlocker(isolate);
 	pthread_key_create(&coro_thread_key, NULL);
 	pthread_setspecific(coro_thread_key, &current());
 	pthread_t thread;
-	pthread_create(&thread, NULL, find_thread_id_key, NULL);
+	pthread_create(&thread, NULL, find_thread_id_key, isolate);
 	pthread_join(thread, NULL);
 }
 
