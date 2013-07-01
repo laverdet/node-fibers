@@ -28,12 +28,6 @@ be faster than a full `npm install` or `node-gyp rebuild`.
 It's recommended that you use node 0.6.18 or higher with node-fibers. Using
 other versions may lead to instability during high loads.
 
-### using windows 8?
-Windows 8 is a beta operating system and you may have issues with fibers. To use
-fibers in Windows 8 you may need to run node.exe in Windows 7 compatibility
-mode. Once Windows 8 is released this issue will be revisited. See gh-70 for
-more information.
-
 ### other notes
 Unlike most NodeJS projects, node-fibers is a C++ project. Some extra work is
 required to compile node-fibers, but pretty much every platform is supported
