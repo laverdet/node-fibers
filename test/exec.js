@@ -8,7 +8,7 @@ if (process.platform == 'win32') {
 	Fiber(function() {
 		require('child_process').exec('echo pass', function(err, stdout) {
 			if (err) console.log(err);
-			require('util').print(stdout);
+			process.stdout.write(stdout);
 		});
 	}).run();
 }

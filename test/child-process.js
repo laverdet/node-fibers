@@ -4,7 +4,7 @@ var Fiber = require('fibers');
 function main() {
 	var proc = require('child_process').spawn(process.execPath, [process.argv[1], 'child']);
 	function ondata(data) {
-		require('util').print(data+ '');
+		process.stdout.write(data+ '');
 	}
 	proc.stdout.on('data', ondata);
 	proc.stderr.on('data', ondata);

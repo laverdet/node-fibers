@@ -34,9 +34,14 @@ namespace uni {
 		handle.Dispose(isolate);
 	}
 
-	template <void (*F)(Isolate*, Persistent<Value>, void*), class T, typename P>
+	template <void (*F)(void*)>
+	void WeakCallbackShim(Isolate* isolate, Persistent<Object>* value, void* data) {
+		F(data);
+	}
+
+	template <void (*F)(void*), class T, typename P>
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
-		handle.MakeWeak(isolate, val, F);
+		handle.MakeWeak(isolate, val, WeakCallbackShim<F>);
 	}
 	template <class T>
 	void ClearWeak(Isolate* isolate, Persistent<T>& handle) {
@@ -62,11 +67,11 @@ namespace uni {
 		handle.Dispose();
 	}
 
-	template <void (*F)(Isolate*, Persistent<Value>, void*)>
+	template <void (*F)(void*)>
 	void WeakCallbackShim(Persistent<Value> value, void* data) {
-		F(NULL, value, data);
+		F(data);
 	}
-	template <void (*F)(Isolate*, Persistent<Value>, void*), class T, typename P>
+	template <void (*F)(void*), class T, typename P>
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
 		handle.MakeWeak(val, WeakCallbackShim<F>);
 	}
@@ -143,7 +148,7 @@ class Fiber {
 		 * i.e. After fiber completes, while yielded, or before started
 		 */
 		void MakeWeak() {
-			uni::MakeWeak<WeakCallback>(isolate, handle, this);
+			uni::MakeWeak<WeakCallback>(isolate, handle, (void*)this);
 		}
 
 		/**
@@ -159,10 +164,9 @@ class Fiber {
 		 * the fiber is currently suspended we'll unwind the fiber's stack by throwing exceptions in
 		 * order to clear all references.
 		 */
-		static void WeakCallback(Isolate* isolate, Persistent<Value> value, void* data) {
+		static void WeakCallback(void* data) {
 			Fiber& that = *static_cast<Fiber*>(data);
-			assert(that.handle == value);
-			assert(value.IsNearDeath());
+			assert(that.handle.IsNearDeath());
 			assert(current != &that);
 
 			// We'll unwind running fibers later... doing it from the garbage collector is bad news.
@@ -173,6 +177,7 @@ class Fiber {
 				return;
 			}
 
+			that.handle.Dispose();
 			delete &that;
 		}
 
