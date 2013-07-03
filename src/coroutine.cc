@@ -109,26 +109,44 @@ Coroutine::Coroutine(entry_t& entry, void* arg) :
 	fls_data(v8_tls_keys),
 	entry(entry),
 	arg(arg) {
-	coro_stack_alloc(&stack, stack_size);
-	coro_create(&context, trampoline, this, stack.sptr, stack.ssze);
 }
 
 Coroutine::~Coroutine() {
 	if (stack.sptr) {
 		coro_stack_free(&stack);
 	}
+#ifdef CORO_FIBER
+	if (context.fiber)
+#endif
 	(void)coro_destroy(&context);
 }
 
-Coroutine& Coroutine::create_fiber(entry_t* entry, void* arg) {
+Coroutine* Coroutine::create_fiber(entry_t* entry, void* arg) {
 	if (!fiber_pool.empty()) {
-		Coroutine& fiber = *fiber_pool.back();
+		Coroutine* fiber = fiber_pool.back();
 		fiber_pool.pop_back();
-		fiber.reset(entry, arg);
+		fiber->reset(entry, arg);
 		return fiber;
 	}
+	Coroutine* coro = new Coroutine(*entry, arg);
+	if (!coro_stack_alloc(&coro->stack, stack_size)) {
+		delete coro;
+		return NULL;
+	}
+	coro_create(&coro->context, trampoline, coro, coro->stack.sptr, coro->stack.ssze);
+#ifdef CORO_FIBER
+	// Stupid hack. libcoro's project structure combined with Windows's CreateFiber functions makes
+	// it difficult to catch this error. Sometimes Windows will return `ERROR_NOT_ENOUGH_MEMORY` or
+	// `ERROR_COMMITMENT_LIMIT` if it can't make any more fibers. However, `coro_stack_alloc` returns
+	// success unconditionally on Windows so we have to detect the error here, after the call to
+	// `coro_create`.
+	if (!coro->context.fiber) {
+		delete coro;
+		return NULL;
+	}
+#endif
 	++coroutines_created_;
-	return *new Coroutine(*entry, arg);
+	return coro;
 }
 
 void Coroutine::reset(entry_t* entry, void* arg) {

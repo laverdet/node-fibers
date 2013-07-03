@@ -257,11 +257,15 @@ class Fiber {
 
 			if (!that.started) {
 				// Create a new context with entry point `Fiber::RunFiber()`.
-				that.started = true;
 				void** data = new void*[2];
 				data[0] = (void*)&args;
 				data[1] = &that;
-				that.this_fiber = &Coroutine::create_fiber((void (*)(void*))RunFiber, data);
+				that.this_fiber = Coroutine::create_fiber((void (*)(void*))RunFiber, data);
+				if (!that.this_fiber) {
+					delete data;
+					THROW(Exception::RangeError, "Out of memory");
+				}
+				that.started = true;
 				V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size() * GC_ADJUST);
 			} else {
 				// If the fiber is currently running put the first parameter to `run()` on `yielded`, then

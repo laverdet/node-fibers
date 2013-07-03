@@ -51,7 +51,7 @@ class Coroutine {
 		/**
 		 * Create a new fiber.
 		 */
-		static Coroutine& create_fiber(entry_t* entry, void* arg = NULL);
+		static Coroutine* create_fiber(entry_t* entry, void* arg = NULL);
 
 		/**
 		 * Initialize the library.
