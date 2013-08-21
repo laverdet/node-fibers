@@ -25,9 +25,13 @@ using namespace v8;
 namespace uni {
 #if NODE_MODULE_VERSION >= 0x000C
 	// Node v0.11+
+	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
+	typedef PropertyCallbackInfo<void> SetterCallbackInfo;
+	typedef void CallbackType;
+
 	template <class T>
-	Persistent<T> New(Isolate* isolate, Handle<T> handle) {
-		return Persistent<T>::New(isolate, handle);
+	void Reset(Isolate* isolate, Persistent<T>& persistent, Handle<T> handle) {
+		persistent.Reset(isolate, handle);
 	}
 	template <class T>
 	void Dispose(Isolate* isolate, Persistent<T>& handle) {
@@ -56,11 +60,30 @@ namespace uni {
 	void* GetInternalPointer(Handle<T> handle, int index) {
 		return handle->GetAlignedPointerFromInternalField(index);
 	}
+
+	template <class T>
+	Handle<T> Deref(Isolate* isolate, Persistent<T>& handle) {
+		return Handle<T>::New(isolate, handle);
+	}
+
+	template <class T>
+	void Return(Handle<T> handle, GetterCallbackInfo info) {
+		info.GetReturnValue().Set(handle);
+	}
+	template <class T>
+	void Return(Persistent<T>& handle, GetterCallbackInfo info) {
+		info.GetReturnValue().Set(handle);
+	}
+
 #else
 	// Node v0.10.x and lower
+	typedef AccessorInfo GetterCallbackInfo;
+	typedef AccessorInfo SetterCallbackInfo;
+	typedef Handle<Value> CallbackType;
+
 	template <class T>
-	Persistent<T> New(Isolate* isolate, Handle<T> handle) {
-		return Persistent<T>::New(handle);
+	void Reset(Isolate* isolate, Persistent<T>& persistent, Handle<T> handle) {
+		persistent = Persistent<T>::New(handle);
 	}
 	template <class T>
 	void Dispose(Isolate* isolate, Persistent<T>& handle) {
@@ -87,6 +110,15 @@ namespace uni {
 	template <class T>
 	void* GetInternalPointer(Handle<T> handle, int index) {
 		return handle->GetPointerFromInternalField(index);
+	}
+
+	template <class T>
+	Handle<T> Deref(Isolate* isolate, Persistent<T>& handle) {
+		return Local<T>::New(handle);
+	}
+
+	Handle<Value> Return(Handle<Value> handle, GetterCallbackInfo info) {
+		return handle;
 	}
 #endif
 }
@@ -125,13 +157,14 @@ class Fiber {
 
 		Fiber(Handle<Object> handle, Handle<Function> cb, Handle<Context> v8_context) :
 			isolate(Isolate::GetCurrent()),
-			handle(uni::New(isolate, handle)),
-			cb(uni::New(isolate, cb)),
-			v8_context(uni::New(isolate, v8_context)),
 			started(false),
 			yielding(false),
 			zombie(false),
 			resetting(false) {
+			uni::Reset(isolate, this->handle, handle);
+			uni::Reset(isolate, this->cb, cb);
+			uni::Reset(isolate, this->v8_context, v8_context);
+
 			MakeWeak();
 			uni::SetInternalPointer(handle, 0, this);
 		}
@@ -204,7 +237,7 @@ class Fiber {
 				if (that.yielded_exception) {
 					// If you throw an exception from a fiber that's being garbage collected there's no way
 					// to bubble that exception up to the application.
-					String::Utf8Value stack(fatal_stack);
+					String::Utf8Value stack(uni::Deref(that.isolate, fatal_stack));
 					cerr <<
 						"An exception was thrown from a Fiber which was being garbage collected. This error "
 						"can not be gracefully recovered from. The only acceptable behavior is to terminate "
@@ -231,7 +264,7 @@ class Fiber {
 				THROW(Exception::TypeError, "Fiber expects a function");
 			} else if (!args.IsConstructCall()) {
 				Handle<Value> argv[1] = { args[0] };
-				return tmpl->GetFunction()->NewInstance(1, argv);
+				return uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction()->NewInstance(1, argv);
 			}
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
@@ -273,9 +306,9 @@ class Fiber {
 				// misnomer, we're just reusing the same handle.
 				that.yielded_exception = false;
 				if (args.Length()) {
-					that.yielded = uni::New(that.isolate, args[0]);
+					uni::Reset(that.isolate, that.yielded, args[0]);
 				} else {
-					that.yielded = uni::New(that.isolate, Undefined());
+					uni::Reset<Value>(that.isolate, that.yielded, Undefined());
 				}
 			}
 			that.SwapContext();
@@ -291,9 +324,9 @@ class Fiber {
 			if (!that.yielding) {
 				THROW(Exception::Error, "This Fiber is not yielding");
 			} else if (args.Length() == 0) {
-				that.yielded = uni::New(that.isolate, Undefined());
+				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
 			} else if (args.Length() == 1) {
-				that.yielded = uni::New(that.isolate, args[0]);
+				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
 				THROW(Exception::TypeError, "throwInto() expects 1 or no arguments");
 			}
@@ -322,7 +355,7 @@ class Fiber {
 			that.resetting = false;
 			that.MakeWeak();
 
-			Handle<Value> val = that.yielded;
+			Handle<Value> val = uni::Deref(that.isolate, that.yielded);
 			that.yielded.Dispose();
 			if (that.yielded_exception) {
 				return ThrowException(val);
@@ -344,9 +377,9 @@ class Fiber {
 			zombie = true;
 
 			// Setup an exception which will be thrown and rethrown from Fiber::Yield()
-			Local<Value> zombie_exception = Exception::Error(String::New("This Fiber is a zombie"));
-			this->zombie_exception = uni::New(isolate, zombie_exception);
-			yielded = uni::New(isolate, zombie_exception);
+			Handle<Value> zombie_exception = Exception::Error(String::New("This Fiber is a zombie"));
+			uni::Reset(isolate, this->zombie_exception, zombie_exception);
+			uni::Reset(isolate, yielded, zombie_exception);
 			yielded_exception = true;
 
 			// Swap context back to Fiber::Yield() which will throw an exception to unwind the stack.
@@ -359,7 +392,7 @@ class Fiber {
 			if (yielded_exception && yielded == zombie_exception) {
 				yielded_exception = false;
 				yielded.Dispose();
-				yielded = uni::New(isolate, Undefined());
+				uni::Reset<Value>(isolate, yielded, Undefined());
 			}
 			this->zombie_exception.Dispose();
 		}
@@ -389,7 +422,7 @@ class Fiber {
 		 * Grabs and resets this fiber's yielded value.
 		 */
 		Handle<Value> ReturnYielded() {
-			Handle<Value> val = yielded;
+			Handle<Value> val = uni::Deref(isolate, yielded);
 			yielded.Dispose();
 			if (yielded_exception) {
 				return ThrowException(val);
@@ -424,7 +457,8 @@ class Fiber {
 
 				TryCatch try_catch;
 				that.ClearWeak();
-				that.v8_context->Enter();
+				Handle<Context> v8_context = uni::Deref(that.isolate, that.v8_context);
+				v8_context->Enter();
 
 				// Workaround for v8 issue #1180
 				// http://code.google.com/p/v8/issues/detail?id=1180
@@ -433,20 +467,20 @@ class Fiber {
 				Handle<Value> yielded;
 				if (args->Length()) {
 					Handle<Value> argv[1] = { (*args)[0] };
-					yielded = that.cb->Call(that.v8_context->Global(), 1, argv);
+					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 1, argv);
 				} else {
-					yielded = that.cb->Call(that.v8_context->Global(), 0, NULL);
+					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 0, NULL);
 				}
 
 				if (try_catch.HasCaught()) {
-					that.yielded = uni::New(that.isolate, try_catch.Exception());
+					uni::Reset(that.isolate, that.yielded, try_catch.Exception());
 					that.yielded_exception = true;
-					if (that.zombie && !that.resetting && that.yielded != that.zombie_exception) {
+					if (that.zombie && !that.resetting && !uni::Deref(that.isolate, that.yielded)->StrictEquals(uni::Deref(that.isolate, that.zombie_exception))) {
 						// Throwing an exception from a garbage sweep
-						fatal_stack = uni::New(that.isolate, try_catch.StackTrace());
+						uni::Reset(that.isolate, fatal_stack, try_catch.StackTrace());
 					}
 				} else {
-					that.yielded = uni::New(that.isolate, yielded);
+					uni::Reset(that.isolate, that.yielded, yielded);
 					that.yielded_exception = false;
 				}
 
@@ -461,7 +495,7 @@ class Fiber {
 				}
 
 				// Now safe to leave the context, this stack is done with JS.
-				that.v8_context->Exit();
+				v8_context->Exit();
 			}
 
 			// The function returned (instead of yielding).
@@ -482,11 +516,11 @@ class Fiber {
 			Fiber& that = *current;
 
 			if (that.zombie) {
-				return ThrowException(that.zombie_exception);
+				return ThrowException(uni::Deref(that.isolate, that.zombie_exception));
 			} else if (args.Length() == 0) {
-				that.yielded = uni::New(that.isolate, Undefined());
+				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
 			} else if (args.Length() == 1) {
-				that.yielded = uni::New(that.isolate, args[0]);
+				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
 				THROW(Exception::TypeError, "yield() expects 1 or no arguments");
 			}
@@ -516,38 +550,38 @@ class Fiber {
 		/**
 		 * Getters for `started`, and `current`.
 		 */
-		static Handle<Value> GetStarted(Local<String> property, const AccessorInfo& info) {
+		static uni::CallbackType GetStarted(Local<String> property, const uni::GetterCallbackInfo& info) {
 			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 1) {
-				return Undefined();
+				return uni::Return(Undefined(), info);
 			}
 			Fiber& that = Unwrap(info.This());
-			return Boolean::New(that.started);
+			return uni::Return(Boolean::New(that.started), info);
 		}
 
-		static Handle<Value> GetCurrent(Local<String> property, const AccessorInfo& info) {
+		static uni::CallbackType GetCurrent(Local<String> property, const uni::GetterCallbackInfo& info) {
 			if (current) {
-				return current->handle;
+				return uni::Return(current->handle, info);
 			} else {
-				return Undefined();
+				return uni::Return(Undefined(), info);
 			}
 		}
 
 		/**
 		 * Allow access to coroutine pool size
 		 */
-		static Handle<Value> GetPoolSize(Local<String> property, const AccessorInfo& info) {
-			return Number::New(Coroutine::pool_size);
+		static uni::CallbackType GetPoolSize(Local<String> property, const uni::GetterCallbackInfo& info) {
+			return uni::Return(Number::New(Coroutine::pool_size), info);
 		}
 
-		static void SetPoolSize(Local<String> property, Local<Value> value, const AccessorInfo& info) {
+		static void SetPoolSize(Local<String> property, Local<Value> value, const uni::SetterCallbackInfo& info) {
 			Coroutine::pool_size = value->ToNumber()->Value();
 		}
 
 		/**
 		 * Return number of fibers that have been created
 		 */
-		static Handle<Value> GetFibersCreated(Local<String> property, const AccessorInfo& info) {
-			return Number::New(Coroutine::coroutines_created());
+		static uni::CallbackType GetFibersCreated(Local<String> property, const uni::GetterCallbackInfo& info) {
+			return uni::Return(Number::New(Coroutine::coroutines_created()), info);
 		}
 
 	public:
@@ -567,7 +601,8 @@ class Fiber {
 			current = NULL;
 
 			// Fiber constructor
-			tmpl = uni::New(isolate, FunctionTemplate::New(New));
+			Handle<FunctionTemplate> tmpl = FunctionTemplate::New(New);
+			uni::Reset(isolate, Fiber::tmpl, tmpl);
 			tmpl->SetClassName(String::NewSymbol("Fiber"));
 
 			// Guard which only allows these methods to be called on a fiber; prevents
@@ -599,7 +634,7 @@ class Fiber {
 
 			// Global Fiber
 			target->Set(String::NewSymbol("Fiber"), fn, ReadOnly);
-			fiber_object = uni::New(isolate, fn);
+			uni::Reset(isolate, fiber_object, fn);
 		}
 };
 
