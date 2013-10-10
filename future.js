@@ -124,6 +124,9 @@ Future.prototype = {
 			var stack = {}, error = this.error instanceof Object ? this.error : new Error(this.error);
 			var longError = Object.create(error);
 			Error.captureStackTrace(stack, Future.prototype.get);
+			for (var f in error) {
+				longError[f] = error[f];
+			}
 			Object.defineProperty(longError, 'stack', {
 				get: function() {
 					var baseStack = error.stack;
