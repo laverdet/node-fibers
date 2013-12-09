@@ -512,12 +512,7 @@ Future.prototype.resolver = function() { ... }
  * If two arguments are passed, the first argument is a future which will be thrown to in the case
  * of error, and the second is a function(val){} callback.
  */
-Future.prototype.resolver = function(/* errback or future, callback */) { ... }
-
-/**
- * Runs a callback only in the case of success.
- */
-Future.prototype.resolveSuccess = function(callback) { ... }
+Future.prototype.resolve = function(/* errback or future, callback */) { ... }
 
 /**
  * Propogate results to another future.
@@ -525,11 +520,6 @@ Future.prototype.resolveSuccess = function(callback) { ... }
  * Example usage: future1.proxy(future2) // future2 gets automatically resolved with however future1 resolves
  */
 Future.prototype.proxy = function(future) { ... }
-
-/**
- * Propogate only errors to an another future or array of futures.
- */
-Future.prototype.proxyErrors = function(futures) { ... }
 
 /**
  * Differs from its functional counterpart in that it actually resolves the future. Thus if the
