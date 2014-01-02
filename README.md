@@ -28,12 +28,6 @@ be faster than a full `npm install` or `node-gyp rebuild`.
 It's recommended that you use node 0.6.18 or higher with node-fibers. Using
 other versions may lead to instability during high loads.
 
-### using windows 8?
-Windows 8 is a beta operating system and you may have issues with fibers. To use
-fibers in Windows 8 you may need to run node.exe in Windows 7 compatibility
-mode. Once Windows 8 is released this issue will be revisited. See gh-70 for
-more information.
-
 ### other notes
 Unlike most NodeJS projects, node-fibers is a C++ project. Some extra work is
 required to compile node-fibers, but pretty much every platform is supported
@@ -419,6 +413,119 @@ Fiber.prototype.reset = function() {
 Fiber.prototype.throwInto = function(exception) {
 	[native code]
 }
+```
+
+
+Future's definition looks something like this:
+
+```javascript
+/**
+ * Returns a future-function which, when run, starts running the target
+ * function and returns a future for the result.
+ * 
+ * Example usage: 
+ * var funcy = function(arg) {
+ *   return arg+1;
+ * }.future();
+ * 
+ * funcy(1).wait(); // returns 2
+ */
+Function.prototype.future = function() { ... }
+
+/**
+ * Future object, instantiated with the new operator.
+ */
+function Future() {}
+
+/**
+ * Wrap a node-style async function to return a future in place of using a callback.
+ * 
+ * fn - the function to wrap
+ * idx - the maximum number of arguments the function can take
+ * 
+ * Example usage: Future.wrap(asyncFunction, 2)(arg1, arg2).wait()
+ */
+Future.wrap = function(fn, idx) { ... }
+
+/**
+ * Wait on a series of futures and then return. If the futures throw an exception this function
+ * /won't/ throw it back. You can get the value of the future by calling get() on it directly. If
+ * you want to wait on a single future you're better off calling future.wait() on the instance.
+ * 
+ * Example usage: Future.wait(aFuture, anotherFuture)
+ */
+Future.wait = function(/* ... */) { ... }
+
+/**
+ * Return the value of this future. If the future hasn't resolved yet this will throw an error.
+ */
+Future.prototype.get = function() { ... }
+
+/**
+ * Mark this future as returned. All pending callbacks will be invoked immediately.
+ * 
+ * value - the value to return when get() or wait() is called.
+ * 
+ * Example usage: aFuture.return(value)
+ */
+Future.prototype.return = function(value) { ... }
+
+/**
+ * Throw from this future as returned. All pending callbacks will be invoked immediately.
+ * Note that execution will continue normally after running this method, 
+ * so make sure you exit appropriately after running throw()
+ * 
+ * error - the error to throw when get() or wait() is called.
+ * 
+ * Example usage: aFuture.throw(new Error("Something borked"))
+ */
+Future.prototype.throw = function(error) { ... }
+
+/**
+ * "detach" this future. Basically this is useful if you want to run a task in a future, you
+ * aren't interested in its return value, but if it throws you don't want the exception to be
+ * lost. If this fiber throws, an exception will be thrown to the event loop and node will
+ * probably fall down.
+ */
+Future.prototype.detach = function() { ... }
+
+/**
+ * Returns whether or not this future has resolved yet.
+ */
+Future.prototype.isResolved = function() { ... }
+
+/**
+ * Returns a node-style function which will mark this future as resolved when called.
+ * 
+ * Example usage: 
+ *   var errback = aFuture.resolver();
+ *   asyncFunction(arg1, arg2, etc, errback)
+ *   var result = aFuture.wait();
+ */
+Future.prototype.resolver = function() { ... }
+
+/**
+ * Waits for this future to resolve and then invokes a callback.
+ *
+ * If only one argument is passed it is a standard function(err, val){} errback.
+ *
+ * If two arguments are passed, the first argument is a future which will be thrown to in the case
+ * of error, and the second is a function(val){} callback.
+ */
+Future.prototype.resolve = function(/* errback or future, callback */) { ... }
+
+/**
+ * Propogate results to another future.
+ * 
+ * Example usage: future1.proxy(future2) // future2 gets automatically resolved with however future1 resolves
+ */
+Future.prototype.proxy = function(future) { ... }
+
+/**
+ * Differs from its functional counterpart in that it actually resolves the future. Thus if the
+ * future threw, future.wait() will throw.
+ */
+Future.prototype.wait = function() { ... }
 ```
 
 GARBAGE COLLECTION

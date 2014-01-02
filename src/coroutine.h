@@ -1,3 +1,4 @@
+#include <node.h>
 #include <stdlib.h>
 #include <vector>
 #include "libcoro/coro.h"
@@ -50,12 +51,12 @@ class Coroutine {
 		/**
 		 * Create a new fiber.
 		 */
-		static Coroutine& create_fiber(entry_t* entry, void* arg = NULL);
+		static Coroutine* create_fiber(entry_t* entry, void* arg = NULL);
 
 		/**
 		 * Initialize the library.
 		 */
-		static void init();
+		static void init(v8::Isolate* isolate);
 
 		/**
 		 * Set the size of coroutines created by this library. Since coroutines are pooled the stack

@@ -24,6 +24,6 @@ Fiber(function() {
 	function wasteStack(ii) {
 		ii ? wasteStack(ii - 1) : fn();
 	}
-	wasteStack(max - 32);
+	wasteStack(max - 94);
 	console.log('pass');
 }).run();

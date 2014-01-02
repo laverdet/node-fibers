@@ -19,13 +19,15 @@ function runTest(test, cb) {
 
 	proc.on('exit', function(code) {
 		if (stdout !== 'pass\n' || stderr !== '') {
-			return cb(new Error(
-					'Test `'+ test+ '` failed.\n'+
-					'code: '+ code+ '\n'+
-					'stderr: '+ stderr+ '\n'+
-					'stdout: '+ stdout));
+			console.error(
+				'test: *fail*\n'+
+				'code: '+ code+ '\n'+
+				'stderr: '+ stderr+ '\n'+
+				'stdout: '+ stdout
+			);
+		} else {
+			console.log(test+ ': '+ 'pass');
 		}
-		console.log(test+ ': '+ 'pass');
 		cb();
 	});
 }
