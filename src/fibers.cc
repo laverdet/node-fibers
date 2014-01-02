@@ -25,8 +25,8 @@ namespace uni {
 #if NODE_MODULE_VERSION >= 0x000D
 	typedef void FunctionRetType;
 	typedef v8::FunctionCallbackInfo<v8::Value> FunctionArgs;
-#	define FUNCTION_RETURN(args, res)	args.GetReturnValue().Set(res)
-#	define THROW(x, m) { args.GetReturnValue().Set(ThrowException(x(String::New(m)))); return; }
+#	define FUNCTION_RETURN(args, res)	{ args.GetReturnValue().Set(res); return; }
+#	define THROW(x, m) { ThrowException(x(String::New(m))); return; }
 #	define HANDLE_SCOPE(scope, isolate)	HandleScope scope(isolate)
 #else
 	typedef Handle<Value> FunctionRetType;
