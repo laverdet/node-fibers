@@ -6,7 +6,6 @@
 
 #include <iostream>
 
-#define THROW(x, m) return ThrowException(x(String::New(m)))
 #ifdef DEBUG
 // Run GC more often when debugging
 #define GC_ADJUST 100
@@ -23,6 +22,17 @@ using namespace v8;
 
 // Handle legacy V8 API
 namespace uni {
+#if NODE_MODULE_VERSION >= 0x000D
+	typedef v8::FunctionCallbackInfo<v8::Value> FunctionCallbackInfo;
+#	define UNI_RETURN(args, res)	{ args.GetReturnValue().Set(res); return; }
+#	define UNI_THROW(x, m) { ThrowException(x(String::New(m))); return; }
+#	define UNI_SCOPE(scope, isolate)	HandleScope scope(isolate)
+#else
+	typedef Arguments FunctionCallbackInfo;
+#	define UNI_RETURN(args, res)	return (res)
+#	define UNI_THROW(x, m) return ThrowException(x(String::New(m)))
+#	define UNI_SCOPE(scope, isolate)	HandleScope scope
+#endif
 #if NODE_MODULE_VERSION >= 0x000C
 	// Node v0.11+
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
@@ -33,20 +43,30 @@ namespace uni {
 	void Reset(Isolate* isolate, Persistent<T>& persistent, Handle<T> handle) {
 		persistent.Reset(isolate, handle);
 	}
-	template <class T>
-	void Dispose(Isolate* isolate, Persistent<T>& handle) {
-		handle.Dispose(isolate);
-	}
-
 	template <void (*F)(void*)>
 	void WeakCallbackShim(Isolate* isolate, Persistent<Object>* value, void* data) {
 		F(data);
 	}
-
+#if NODE_MODULE_VERSION >= 0x000D
+	template <class T>
+	void Dispose(Isolate* isolate, Persistent<T>& handle) {
+		handle.Dispose();
+	}
+	template <void (*F)(void*), class T, typename P>
+	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
+		handle.MakeWeak(val, WeakCallbackShim<F>);
+	}
+#else
+	template <class T>
+	void Dispose(Isolate* isolate, Persistent<T>& handle) {
+		handle.Dispose(isolate);
+	}
 	template <void (*F)(void*), class T, typename P>
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
 		handle.MakeWeak(isolate, val, WeakCallbackShim<F>);
 	}
+#endif
+
 	template <class T>
 	void ClearWeak(Isolate* isolate, Persistent<T>& handle) {
 		handle.ClearWeak(isolate);
@@ -257,35 +277,35 @@ class Fiber {
 		 * Instantiate a new Fiber object. When a fiber is created it only grabs a handle to the
 		 * callback; it doesn't create any new contexts until run() is called.
 		 */
-		static Handle<Value> New(const Arguments& args) {
+		static uni::CallbackType New(const uni::FunctionCallbackInfo& args) {
 			if (args.Length() != 1) {
-				THROW(Exception::TypeError, "Fiber expects 1 argument");
+				UNI_THROW(Exception::TypeError, "Fiber expects 1 argument");
 			} else if (!args[0]->IsFunction()) {
-				THROW(Exception::TypeError, "Fiber expects a function");
+				UNI_THROW(Exception::TypeError, "Fiber expects a function");
 			} else if (!args.IsConstructCall()) {
 				Handle<Value> argv[1] = { args[0] };
-				return uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction()->NewInstance(1, argv);
+				UNI_RETURN(args, uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction()->NewInstance(1, argv));
 			}
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
 			new Fiber(args.This(), fn, Context::GetCurrent());
-			return args.This();
+			UNI_RETURN(args, args.This());
 		}
 
 		/**
 		 * Begin or resume the current fiber. If the fiber is not currently running a new context will
 		 * be created and the callback will start. Otherwise we switch back into the exist context.
 		 */
-		static Handle<Value> Run(const Arguments& args) {
+		static uni::CallbackType Run(const uni::FunctionCallbackInfo& args) {
 			Fiber& that = Unwrap(args.Holder());
 
 			// There seems to be no better place to put this check..
 			DestroyOrphans();
 
 			if (that.started && !that.yielding) {
-				THROW(Exception::Error, "This Fiber is already running");
+				UNI_THROW(Exception::Error, "This Fiber is already running");
 			} else if (args.Length() > 1) {
-				THROW(Exception::TypeError, "run() excepts 1 or no arguments");
+				UNI_THROW(Exception::TypeError, "run() excepts 1 or no arguments");
 			}
 
 			if (!that.started) {
@@ -296,7 +316,7 @@ class Fiber {
 				that.this_fiber = Coroutine::create_fiber((void (*)(void*))RunFiber, data);
 				if (!that.this_fiber) {
 					delete data;
-					THROW(Exception::RangeError, "Out of memory");
+					UNI_THROW(Exception::RangeError, "Out of memory");
 				}
 				that.started = true;
 				V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size() * GC_ADJUST);
@@ -312,42 +332,42 @@ class Fiber {
 				}
 			}
 			that.SwapContext();
-			return that.ReturnYielded();
+			UNI_RETURN(args, that.ReturnYielded());
 		}
 
 		/**
 		 * Throw an exception into a currently yielding fiber.
 		 */
-		static Handle<Value> ThrowInto(const Arguments& args) {
+		static uni::CallbackType ThrowInto(const uni::FunctionCallbackInfo& args) {
 			Fiber& that = Unwrap(args.Holder());
 
 			if (!that.yielding) {
-				THROW(Exception::Error, "This Fiber is not yielding");
+				UNI_THROW(Exception::Error, "This Fiber is not yielding");
 			} else if (args.Length() == 0) {
 				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
 			} else if (args.Length() == 1) {
 				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
-				THROW(Exception::TypeError, "throwInto() expects 1 or no arguments");
+				UNI_THROW(Exception::TypeError, "throwInto() expects 1 or no arguments");
 			}
 			that.yielded_exception = true;
 			that.SwapContext();
-			return that.ReturnYielded();
+			UNI_RETURN(args, that.ReturnYielded());
 		}
 
 		/**
 		 * Unwinds a currently running fiber. If the fiber is not running then this function has no
 		 * effect.
 		 */
-		static Handle<Value> Reset(const Arguments& args) {
+		static uni::CallbackType Reset(const uni::FunctionCallbackInfo& args) {
 			Fiber& that = Unwrap(args.Holder());
 
 			if (!that.started) {
-				return Undefined();
+				UNI_RETURN(args, Undefined());
 			} else if (!that.yielding) {
-				THROW(Exception::Error, "This Fiber is not yielding");
+				UNI_THROW(Exception::Error, "This Fiber is not yielding");
 			} else if (args.Length()) {
-				THROW(Exception::TypeError, "reset() expects no arguments");
+				UNI_THROW(Exception::TypeError, "reset() expects no arguments");
 			}
 
 			that.resetting = true;
@@ -358,9 +378,9 @@ class Fiber {
 			Handle<Value> val = uni::Deref(that.isolate, that.yielded);
 			that.yielded.Dispose();
 			if (that.yielded_exception) {
-				return ThrowException(val);
+				UNI_RETURN(args, ThrowException(val));
 			} else {
-				return val;
+				UNI_RETURN(args, val);
 			}
 		}
 
@@ -435,7 +455,7 @@ class Fiber {
 		 * This is the entry point for a new fiber, from `run()`.
 		 */
 		static void RunFiber(void** data) {
-			const Arguments* args = (const Arguments*)data[0];
+			const uni::FunctionCallbackInfo* args = (const uni::FunctionCallbackInfo*)data[0];
 			Fiber& that = *(Fiber*)data[1];
 			delete[] data;
 
@@ -445,7 +465,7 @@ class Fiber {
 			{
 				Locker locker(that.isolate);
 				Isolate::Scope isolate_scope(that.isolate);
-				HandleScope scope;
+				UNI_SCOPE(scope, that.isolate);
 
 				// Set the stack guard for this "thread"; allow 128k or 256k of padding past the JS limit for
 				// native v8 code to run
@@ -508,21 +528,21 @@ class Fiber {
 		 * is returned from `run()`. The context is saved, to be later resumed from `run()`.
 		 * note: sigh, there is a #define Yield() in WinBase.h on Windows
 		 */
-		static Handle<Value> Yield_(const Arguments& args) {
+		static uni::CallbackType Yield_(const uni::FunctionCallbackInfo& args) {
 			if (current == NULL) {
-				THROW(Exception::Error, "yield() called with no fiber running");
+				UNI_THROW(Exception::Error, "yield() called with no fiber running");
 			}
 
 			Fiber& that = *current;
 
 			if (that.zombie) {
-				return ThrowException(uni::Deref(that.isolate, that.zombie_exception));
+				UNI_RETURN(args, ThrowException(uni::Deref(that.isolate, that.zombie_exception)));
 			} else if (args.Length() == 0) {
 				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
 			} else if (args.Length() == 1) {
 				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
-				THROW(Exception::TypeError, "yield() expects 1 or no arguments");
+				UNI_THROW(Exception::TypeError, "yield() expects 1 or no arguments");
 			}
 			that.yielded_exception = false;
 
@@ -544,7 +564,7 @@ class Fiber {
 			that.ClearWeak();
 
 			// Return the yielded value
-			return that.ReturnYielded();
+			UNI_RETURN(args, that.ReturnYielded());
 		}
 
 		/**
@@ -655,7 +675,7 @@ extern "C" void init(Handle<Object> target) {
 		return;
 	}
 	did_init = true;
-	HandleScope scope;
+	UNI_SCOPE(scope, Isolate::GetCurrent());
 	Coroutine::init(Isolate::GetCurrent());
 	Fiber::Init(target);
 	// Default stack size of either 512k or 1M. Perhaps make this configurable by the run time?
