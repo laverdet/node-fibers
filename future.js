@@ -32,6 +32,15 @@ Future.wrap = function(fn, idx) {
 	};
 };
 
+/** 
+ * Creates a future returning the given result value.
+ */
+Future.fromResult = function(value) {
+	var future = new Future();
+	future.return(value);
+	return future;
+}
+
 /**
  * Wait on a series of futures and then return. If the futures throw an exception this function
  * /won't/ throw it back. You can get the value of the future by calling get() on it directly. If
