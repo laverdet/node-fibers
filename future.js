@@ -13,7 +13,25 @@ Function.prototype.future = function() {
 	return ret;
 };
 
-function Future() {}
+Future.activeFutures = [];
+var activeFutureCtorStack = [];
+
+function addActiveFuture(future) {
+	Future.activeFutures.push(future);
+	activeFutureCtorStack.push(new Error().stack);
+}
+
+function deleteActiveFuture(future) {
+	var index = Future.activeFutures.indexOf(future);
+	if (index !== -1) {
+		Future.activeFutures.splice(index, 1);
+		activeFutureCtorStack.splice(index, 1);
+	}
+}
+
+function Future() {
+	addActiveFuture(this);
+}
 
 /**
  * Wrap a node-style async function to return a future in place of using a callback.
@@ -32,7 +50,7 @@ Future.wrap = function(fn, idx) {
 	};
 };
 
-/** 
+/**
  * Creates a future returning the given result value.
  */
 Future.fromResult = function(value) {
@@ -41,25 +59,28 @@ Future.fromResult = function(value) {
 	return future;
 }
 
-/**
- * Wait on a series of futures and then return. If the futures throw an exception this function
- * /won't/ throw it back. You can get the value of the future by calling get() on it directly. If
- * you want to wait on a single future you're better off calling future.wait() on the instance.
- */
-Future.wait = function wait(/* ... */) {
+Future.assertNoFutureLeftBehind = function() {
+	if (Future.activeFutures.length > 0) {
+		var message = ["There are outstanding futures. Construction call stacks:"];
+		for (var i = 0; i < Future.activeFutures.length; ++i) {
+			message.push("#" + (i+1).toString());
+			var stack = activeFutureCtorStack[i].split("\n");
+			stack.shift();
+			while (stack[0] && stack[0].indexOf("future.js") !== -1)
+				stack.shift();
+			message.push(stack.join("\n"));
+		}
+		throw new Error(message.join("\n"));
+	}
+}
 
-	// Normalize arguments + pull out a FiberFuture for reuse if possible
-	var futures = [], singleFiberFuture;
+function getUnresolvedFutures() {
+	var futures = [];
 	for (var ii = 0; ii < arguments.length; ++ii) {
 		var arg = arguments[ii];
 		if (arg instanceof Future) {
 			// Ignore already resolved fibers
 			if (arg.isResolved()) {
-				continue;
-			}
-			// Look for fiber reuse
-			if (!singleFiberFuture && arg instanceof FiberFuture && !arg.started) {
-				singleFiberFuture = arg;
 				continue;
 			}
 			futures.push(arg);
@@ -71,11 +92,6 @@ Future.wait = function wait(/* ... */) {
 					if (aarg.isResolved()) {
 						continue;
 					}
-					// Look for fiber reuse
-					if (!singleFiberFuture && aarg instanceof FiberFuture && !aarg.started) {
-						singleFiberFuture = aarg;
-						continue;
-					}
 					futures.push(aarg);
 				} else {
 					throw new Error(aarg+ ' is not a future');
@@ -83,6 +99,27 @@ Future.wait = function wait(/* ... */) {
 			}
 		} else {
 			throw new Error(arg+ ' is not a future');
+		}
+	}
+	return futures;
+}
+
+/**
+ * Wait on a series of futures and then return. If the futures throw an exception this function
+ * /won't/ throw it back. You can get the value of the future by calling get() on it directly. If
+ * you want to wait on a single future you're better off calling future.wait() on the instance.
+ */
+Future.settle = function settle(/* ... */) {
+	var futures = getUnresolvedFutures.apply(null, arguments);
+
+	// pull out a FiberFuture for reuse if possible
+	var singleFiberFuture;
+	for (var i = 0; i < futures.length; ++i) {
+		var candidateFuture = futures[i];
+		if (candidateFuture instanceof FiberFuture && !candidateFuture.started) {
+			singleFiberFuture = candidateFuture;
+			futures.splice(i, 1);
+			break;
 		}
 	}
 
@@ -100,7 +137,7 @@ Future.wait = function wait(/* ... */) {
 		}
 	}
 	for (var ii = 0; ii < futures.length; ++ii) {
-		futures[ii].resolve(cb);
+		futures[ii].resolve(cb, undefined, true);
 	}
 
 	// Reusing a fiber?
@@ -119,6 +156,42 @@ Future.wait = function wait(/* ... */) {
 	if (pending) {
 		Fiber.yield();
 	}
+
+	if (singleFiberFuture) {
+		futures.push(singleFiberFuture);
+	}
+	return futures;
+};
+
+Future.wait = function wait() {
+	var futures = Future.settle.apply(null, arguments);
+	var errors;
+
+	for (var i = 0; i < futures.length; ++i) {
+		var settled = futures[i];
+		deleteActiveFuture(settled);
+		if (settled.resolved && settled.error) {
+			(errors || (errors = [])).push(settled.error);
+		}
+	}
+
+	if (errors) {
+		if (errors.length === 1) {
+			throw errors[0];
+		} else {
+			var error = new Error();
+			error.innerErrors = errors;
+			error.toString = function() {
+				var message = ["Multiple exceptions were thrown."];
+				for (var ei = 0; ei < errors.length; ++ei) {
+					var err = errors[ei];
+					message.push(err.stack ? err.stack : err);
+				}
+				return message.join("\n\n");
+			};
+			throw error;
+		}
+	}
 };
 
 Future.prototype = {
@@ -126,6 +199,7 @@ Future.prototype = {
 	 * Return the value of this future. If the future hasn't resolved yet this will throw an error.
 	 */
 	get: function() {
+		deleteActiveFuture(this);
 		if (!this.resolved) {
 			throw new Error('Future must resolve before value is ready');
 		} else if (this.error) {
@@ -261,7 +335,11 @@ Future.prototype = {
 	 *
 	 * If only one argument is passed it is a standard function(err, val){} callback.
 	 */
-	resolve: function(arg1, arg2) {
+	resolve: function(arg1, arg2, noDeactivate) {
+		if (!noDeactivate) {
+			deleteActiveFuture(this);
+		}
+
 		if (this.resolved) {
 			if (arg2) {
 				if (this.error) {
@@ -324,14 +402,13 @@ Future.prototype = {
 	},
 
 	/**
-	 * Differs from its functional counterpart in that it actually resolves the future. Thus if the
-	 * future threw, future.wait() will throw.
+	 * Waits for the future to settle. If the future throws an error, then wait() will rethrow that error.
 	 */
 	wait: function() {
 		if (this.isResolved()) {
 			return this.get();
 		}
-		Future.wait(this);
+		Future.settle(this);
 		return this.get();
 	},
 };
@@ -344,6 +421,7 @@ function FiberFuture(fn, context, args) {
 	this.context = context;
 	this.args = args;
 	this.started = false;
+	addActiveFuture(this);
 	var that = this;
 	process.nextTick(function() {
 		if (!that.started) {
