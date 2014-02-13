@@ -17,20 +17,31 @@ function Future() {}
 
 /**
  * Wrap a node-style async function to return a future in place of using a callback.
+ * either used like futureWrap(function(){ ... })(arg1,arg2,etc) or
+ * futureWrap(object, 'methodName')(arg1,arg2,etc)
  */
-Future.wrap = function(fn, idx) {
-	idx = idx === undefined ? fn.length - 1 : idx;
+Future.wrap = function() {
+    // function
+    if(arguments.length === 1) {
+        var fn = arguments[0]
+        var object = undefined
+
+    // object, function
+    } else {
+        var object = arguments[0]
+        var fn = object[arguments[1]]
+    }
+
 	return function() {
-		var args = Array.prototype.slice.call(arguments);
-		if (args.length > idx) {
-			throw new Error('function expects no more than '+ idx+ ' arguments');
-		}
-		var future = new Future;
-		args[idx] = future.resolver();
-		fn.apply(this, args);
-		return future;
-	};
-};
+		var args = Array.prototype.slice.call(arguments)
+		var future = new Future
+		args.push(future.resolver())
+		var me = this
+        if(object) me = object
+        fn.apply(me, args)
+		return future
+	}
+}
 
 /**
  * Wait on a series of futures and then return. If the futures throw an exception this function
