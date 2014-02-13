@@ -22,8 +22,7 @@ here every time you build, or you can use the included build script. Either
 `npm install` or `node build -f` will do this for you. If you are going to be
 hacking on node-fibers, it may be worthwhile to first do `node-gyp configure`
 and then for subsequent rebuilds you can just do `node-gyp build` which will
-be faster than a full `npm install` or `node-gyp rebuild`. For windows, use
-rebuild.bat to build and rebuild fibers.
+be faster than a full `npm install` or `node-gyp rebuild`.
 
 ### important!
 It's recommended that you use node 0.6.18 or higher with node-fibers. Using
