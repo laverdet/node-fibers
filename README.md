@@ -241,6 +241,7 @@ loop blocked:
 	$ cat ls.js
 
 ```javascript
+var Fiber = require('fibers');
 var Future = require('fibers/future'), wait = Future.wait;
 var fs = require('fs');
 
