@@ -180,15 +180,18 @@ Future.wait = function wait() {
 			throw errors[0];
 		} else {
 			var error = new Error();
+			var message = ["Multiple exceptions were thrown:"];
+			var stack = ["Multiple exceptions were thrown:"];
+			for (var ei = 0; ei < errors.length; ++ei) {
+				var err = errors[ei];
+				message.push(err.message);
+				stack.push(err.stack ? err.stack : err);
+			}
+
 			error.innerErrors = errors;
-			error.toString = function() {
-				var message = ["Multiple exceptions were thrown."];
-				for (var ei = 0; ei < errors.length; ++ei) {
-					var err = errors[ei];
-					message.push(err.stack ? err.stack : err);
-				}
-				return message.join("\n\n");
-			};
+			error.message = message.join("\n");
+			error.stack = stack.join("\n\n");
+
 			throw error;
 		}
 	}
