@@ -74,13 +74,13 @@ Future.assertNoFutureLeftBehind = function() {
 	}
 }
 
-function getUnresolvedFutures() {
+function getFutures(args, removeResolved) {
 	var futures = [];
-	for (var ii = 0; ii < arguments.length; ++ii) {
-		var arg = arguments[ii];
+	for (var ii = 0; ii < args.length; ++ii) {
+		var arg = args[ii];
 		if (arg instanceof Future) {
 			// Ignore already resolved fibers
-			if (arg.isResolved()) {
+			if (removeResolved && arg.isResolved()) {
 				continue;
 			}
 			futures.push(arg);
@@ -89,7 +89,7 @@ function getUnresolvedFutures() {
 				var aarg = arg[jj];
 				if (aarg instanceof Future) {
 					// Ignore already resolved fibers
-					if (aarg.isResolved()) {
+					if (removeResolved && aarg.isResolved()) {
 						continue;
 					}
 					futures.push(aarg);
@@ -110,7 +110,7 @@ function getUnresolvedFutures() {
  * you want to wait on a single future you're better off calling future.wait() on the instance.
  */
 Future.settle = function settle(/* ... */) {
-	var futures = getUnresolvedFutures.apply(null, arguments);
+	var futures = getFutures(arguments, true);
 
 	// pull out a FiberFuture for reuse if possible
 	var singleFiberFuture;
@@ -164,7 +164,8 @@ Future.settle = function settle(/* ... */) {
 };
 
 Future.wait = function wait() {
-	var futures = Future.settle.apply(null, arguments);
+	Future.settle.apply(null, arguments)
+	var futures = getFutures(arguments, false);
 	var errors;
 
 	for (var i = 0; i < futures.length; ++i) {
