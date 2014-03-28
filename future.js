@@ -430,6 +430,7 @@ function FiberFuture(fn, context, args) {
 	process.nextTick(function() {
 		if (!that.started) {
 			that.started = true;
+			console.log("WARNING: Non-primary fiber starting. Function: %s", fn.toString());
 			Fiber(function() {
 				try {
 					that.return(fn.apply(context, args));
