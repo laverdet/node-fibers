@@ -4,6 +4,7 @@
 #include <pthread.h>
 #else
 #include <windows.h>
+#include <intrin.h>
 // Stub pthreads into Windows approximations
 #define pthread_t HANDLE
 #define pthread_create(thread, attr, fn, arg) !((*thread)=CreateThread(NULL, 0, &(fn), arg, 0, NULL))
