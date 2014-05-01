@@ -16,20 +16,92 @@ Function.prototype.future = function() {
 function Future() {}
 
 /**
- * Wrap a node-style async function to return a future in place of using a callback.
+ * Run a function(s) in a future context, and return a future to their return value. This is useful
+ * for instances where you want a closure to be able to `.wait()`. This also lets you wait for
+ * mulitple parallel opertions to run.
  */
-Future.wrap = function(fn, idx) {
-	idx = idx === undefined ? fn.length - 1 : idx;
-	return function() {
-		var args = Array.prototype.slice.call(arguments);
-		if (args.length > idx) {
-			throw new Error('function expects no more than '+ idx+ ' arguments');
+Future.task = function(fn) {
+	if (arguments.length === 1) {
+		return fn.future()();
+	} else {
+		var future = new Future, pending = arguments.length, error, values = new Array(arguments.length);
+		for (var ii = 0; ii < arguments.length; ++ii) {
+			arguments[ii].future()().resolve(function(ii, err, val) {
+				if (err) {
+					error = err;
+				}
+				values[ii] = val;
+				if (--pending === 0) {
+					if (error) {
+						future.throw(error);
+					} else {
+						future.return(values);
+					}
+				}
+			}.bind(null, ii));
 		}
-		var future = new Future;
-		args[idx] = future.resolver();
-		fn.apply(this, args);
 		return future;
-	};
+	}
+};
+
+/**
+ * Wrap node-style async functions to instead return futures. This assumes that the last parameter
+ * of the function is a callback.
+ *
+ * If a single function is passed a future-returning function is created. If an object is passed a
+ * new object is returned with all functions wrapped.
+ *
+ * The value that is returned from the invocation of the underlying function is assigned to the
+ * property `_` on the future. This is useful for functions like `execFile` which take a callback,
+ * but also return meaningful information.
+ *
+ * `multi` indicates that this callback will return more than 1 argument after `err`. For example,
+ * `child_process.exec()`
+ *
+ * `suffix` will append a string to every method that was overridden, if you pass an object to
+ * `Future.wrap()`. Default is 'Future'.
+ *
+ * var readFileFuture = Future.wrap(require('fs').readFile);
+ * var fs = Future.wrap(require('fs'));
+ * fs.readFileFuture('example.txt').wait();
+ */
+Future.wrap = function(fnOrObject, multi, suffix, stop) {
+	if (typeof fnOrObject === 'object') {
+		var wrapped = Object.create(fnOrObject);
+		for (var ii in fnOrObject) {
+			if (wrapped[ii] instanceof Function) {
+				wrapped[suffix === undefined ? ii+ 'Future' : ii+ suffix] = Future.wrap(wrapped[ii], multi, suffix, stop);
+			}
+		}
+		return wrapped;
+	} else if (typeof fnOrObject === 'function') {
+		var fn = function() {
+			var future = new Future;
+			var args = Array.prototype.slice.call(arguments);
+			if (multi) {
+				var cb = future.resolver();
+				args.push(function(err) {
+					cb(err, Array.prototype.slice.call(arguments, 1));
+				});
+			} else {
+				args.push(future.resolver());
+			}
+			future._ = fnOrObject.apply(this, args);
+			return future;
+		}
+		// Modules like `request` return a function that has more functions as properties. Handle this
+		// in some kind of reasonable way.
+		if (!stop) {
+			var proto = Object.create(fnOrObject);
+			for (var ii in fnOrObject) {
+				if (fnOrObject.hasOwnProperty(ii) && fnOrObject[ii] instanceof Function) {
+					proto[ii] = proto[ii];
+				}
+			}
+			fn.__proto__ = Future.wrap(proto, multi, suffix, true);
+		}
+		return fn;
+	}
 };
 
 /**
