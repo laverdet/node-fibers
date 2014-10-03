@@ -231,7 +231,6 @@ class Fiber {
 				return;
 			}
 
-			that.handle.Dispose();
 			delete &that;
 		}
 
