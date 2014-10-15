@@ -20,7 +20,7 @@ var args = process.argv.slice(2).filter(function(arg) {
 	}
 	return true;
 });
-if (!{ia32: true, x64: true, arm: true}.hasOwnProperty(arch)) {
+if (!{ia32: true, x64: true, arm: true, ppc: true, ppc64: true, s390: true, s390: true}.hasOwnProperty(arch)) {
 	console.error('Unsupported (?) architecture: `'+ arch+ '`');
 	process.exit(1);
 }
