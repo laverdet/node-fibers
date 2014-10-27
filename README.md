@@ -241,33 +241,28 @@ loop blocked:
 	$ cat ls.js
 
 ```javascript
-var Future = require('fibers/future'), wait = Future.wait;
-var fs = require('fs');
+var Future = require('fibers/future');
+var fs = Future.wrap(require('fs'));
 
-// This wraps existing functions assuming the last argument of the passed
-// function is a callback. The new functions created immediately return a
-// future and the future will resolve when the callback is called (which
-// happens behind the scenes).
-var readdir = Future.wrap(fs.readdir);
-var stat = Future.wrap(fs.stat);
-
-Fiber(function() {
+Future.task(function() {
 	// Get a list of files in the directory
-	var fileNames = readdir('.').wait();
+	var fileNames = fs.readdirFuture('.').wait();
 	console.log('Found '+ fileNames.length+ ' files');
 
 	// Stat each file
 	var stats = [];
 	for (var ii = 0; ii < fileNames.length; ++ii) {
-		stats.push(stat(fileNames[ii]));
+		stats.push(fs.statFuture(fileNames[ii]));
 	}
-	wait(stats);
+	stats.map(function(f) {
+		f.wait()
+	});
 
 	// Print file size
 	for (var ii = 0; ii < fileNames.length; ++ii) {
 		console.log(fileNames[ii]+ ': '+ stats[ii].get().size);
 	}
-}).run();
+}).detach();
 ```
 
 	$ node ls.js 
@@ -440,12 +435,25 @@ function Future() {}
 /**
  * Wrap a node-style async function to return a future in place of using a callback.
  * 
- * fn - the function to wrap
- * idx - the maximum number of arguments the function can take
+ * fn - the function or object to wrap
+ * array - indicates that this callback will return more than 1 argument after `err`. For example,
+ *         `child_process.exec()` returns [err, stdout, stderr]
+ * suffix - appends a string to every method that was overridden, if you passed an object
  * 
- * Example usage: Future.wrap(asyncFunction, 2)(arg1, arg2).wait()
+ * Example usage: Future.wrap(asyncFunction)(arg1).wait()
  */
-Future.wrap = function(fn, idx) { ... }
+Future.wrap = function(fn, multi, suffix) { ... }
+
+/**
+ * Invoke a function that will be run in its own fiber context and return a future to its return
+ * value.
+ *
+ * Example:
+ * Future.task(function() {
+ *   // You can safely `wait` on stuff here
+ * }).detach();
+ */
+Future.task = function(fn) { ... }
 
 /**
  * Wait on a series of futures and then return. If the futures throw an exception this function

@@ -6,7 +6,7 @@
 
 #include <iostream>
 
-#define THROW(x, m) return uni::Return(ThrowException(x(String::New(m))), args)
+#define THROW(x, m) return uni::Return(uni::ThrowException(Isolate::GetCurrent(), x(uni::NewLatin1String(Isolate::GetCurrent(), m))), args)
 #ifdef DEBUG
 // Run GC more often when debugging
 #define GC_ADJUST 100
@@ -24,7 +24,7 @@ using namespace v8;
 // Handle legacy V8 API
 namespace uni {
 #if NODE_MODULE_VERSION >= 0x000D
-	// Node v0.11+
+	// Node v0.11.13+
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
 	typedef PropertyCallbackInfo<void> SetterCallbackInfo;
 	typedef void FunctionType;
@@ -41,17 +41,17 @@ namespace uni {
 	}
 	template <class T>
 	void Dispose(Isolate* isolate, Persistent<T>& handle) {
-		handle.Dispose();
+		handle.Reset();
 	}
 
-	template <void (*F)(void*)>
-	void WeakCallbackShim(Isolate* isolate, Persistent<Object>* value, void* data) {
-		F(data);
+	template <void (*F)(void*), class T, typename P>
+	void WeakCallbackShim(const v8::WeakCallbackData<T, P>& data) {
+		F(data.GetParameter());
 	}
 
 	template <void (*F)(void*), class T, typename P>
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
-		handle.MakeWeak(val, WeakCallbackShim<F>);
+		handle.SetWeak(val, WeakCallbackShim<F>);
 	}
 	template <class T>
 	void ClearWeak(Isolate* isolate, Persistent<T>& handle) {
@@ -69,7 +69,7 @@ namespace uni {
 
 	template <class T>
 	Handle<T> Deref(Isolate* isolate, Persistent<T>& handle) {
-		return Handle<T>::New(isolate, handle);
+		return Local<T>::New(isolate, handle);
 	}
 
 	template <class T>
@@ -83,6 +83,61 @@ namespace uni {
 	template <class T>
 	void Return(Persistent<T>& handle, GetterCallbackInfo info) {
 		info.GetReturnValue().Set(handle);
+	}
+
+	Handle<Value> ThrowException(Isolate* isolate, Handle<Value> exception) {
+		return isolate->ThrowException(exception);
+	}
+
+	Handle<Context> GetCurrentContext(Isolate* isolate) {
+		return isolate->GetCurrentContext();
+	}
+
+	Handle<Primitive> Undefined(Isolate* isolate) {
+		return v8::Undefined(isolate);
+	}
+
+	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string);
+	}
+
+	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string);
+	}
+
+	Handle<Boolean> NewBoolean(Isolate* isolate, bool value) {
+		return Boolean::New(isolate, value);
+	}
+
+	Handle<Number> NewNumber(Isolate* isolate, double value) {
+		return Number::New(isolate, value);
+	}
+
+	Handle<FunctionTemplate> NewFunctionTemplate(
+		Isolate* isolate,
+		FunctionCallback callback,
+		Handle<Value> data = Handle<Value>(),
+		Handle<Signature> signature = Handle<Signature>(),
+		int length = 0
+	) {
+		return FunctionTemplate::New(isolate, callback, data, signature, length);
+	}
+
+	Handle<Signature> NewSignature(
+		Isolate* isolate,
+		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
+		int argc = 0,
+		Handle<FunctionTemplate> argv[] = 0
+	) {
+		return Signature::New(isolate, receiver, argc, argv);
+	}
+
+	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
+		isolate->AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
+	}
+
+	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
+		v8::SetResourceConstraints(isolate, constraints);
 	}
 
 #else
@@ -139,6 +194,61 @@ namespace uni {
 
 	Handle<Value> Return(Handle<Value> handle, const Arguments& args) {
 		return handle;
+	}
+
+	Handle<Value> ThrowException(Isolate* isolate, Handle<Value> exception) {
+		return ThrowException(exception);
+	}
+
+	Handle<Context> GetCurrentContext(Isolate* isolate) {
+		return Context::GetCurrent();
+	}
+
+	Handle<Primitive> Undefined(Isolate* isolate) {
+		return v8::Undefined();
+	}
+
+	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+		return String::New(string);
+	}
+
+	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+		return String::NewSymbol(string);
+	}
+
+	Handle<Boolean> NewBoolean(Isolate* isolate, bool value) {
+		return Boolean::New(value);
+	}
+
+	Handle<Number> NewNumber(Isolate* isolate, double value) {
+		return Number::New(value);
+	}
+
+	Handle<FunctionTemplate> NewFunctionTemplate(
+		Isolate* isolate,
+		InvocationCallback callback,
+		Handle<Value> data = Handle<Value>(),
+		Handle<Signature> signature = Handle<Signature>(),
+		int length = 0
+	) {
+		return FunctionTemplate::New(callback, data, signature);
+	}
+
+	Handle<Signature> NewSignature(
+		Isolate* isolate,
+		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
+		int argc = 0,
+		Handle<FunctionTemplate> argv[] = 0
+	) {
+		return Signature::New(receiver, argc, argv);
+	}
+
+	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
+		V8::AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
+	}
+
+	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
+		v8::SetResourceConstraints(constraints);
 	}
 
 #endif
@@ -231,7 +341,6 @@ class Fiber {
 				return;
 			}
 
-			that.handle.Dispose();
 			delete &that;
 		}
 
@@ -266,10 +375,10 @@ class Fiber {
 						<<*stack <<"\n";
 					exit(1);
 				} else {
-					fatal_stack.Dispose();
+					uni::Dispose(that.isolate, fatal_stack);
 				}
 
-				that.yielded.Dispose();
+				uni::Dispose(that.isolate, that.yielded);
 				that.MakeWeak();
 			}
 		}
@@ -289,7 +398,7 @@ class Fiber {
 			}
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
-			new Fiber(args.This(), fn, Context::GetCurrent());
+			new Fiber(args.This(), fn, uni::GetCurrentContext(Isolate::GetCurrent()));
 			return uni::Return(args.This(), args);
 		}
 
@@ -320,7 +429,7 @@ class Fiber {
 					THROW(Exception::RangeError, "Out of memory");
 				}
 				that.started = true;
-				V8::AdjustAmountOfExternalAllocatedMemory(that.this_fiber->size() * GC_ADJUST);
+				uni::AdjustAmountOfExternalAllocatedMemory(that.isolate, that.this_fiber->size() * GC_ADJUST);
 			} else {
 				// If the fiber is currently running put the first parameter to `run()` on `yielded`, then
 				// the pending call to `yield()` will return that value. `yielded` in this case is just a
@@ -329,7 +438,7 @@ class Fiber {
 				if (args.Length()) {
 					uni::Reset(that.isolate, that.yielded, args[0]);
 				} else {
-					uni::Reset<Value>(that.isolate, that.yielded, Undefined());
+					uni::Reset<Value>(that.isolate, that.yielded, uni::Undefined(that.isolate));
 				}
 			}
 			that.SwapContext();
@@ -345,7 +454,7 @@ class Fiber {
 			if (!that.yielding) {
 				THROW(Exception::Error, "This Fiber is not yielding");
 			} else if (args.Length() == 0) {
-				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
+				uni::Reset<Value>(that.isolate, that.yielded, uni::Undefined(that.isolate));
 			} else if (args.Length() == 1) {
 				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
@@ -364,7 +473,7 @@ class Fiber {
 			Fiber& that = Unwrap(args.Holder());
 
 			if (!that.started) {
-				return uni::Return(Undefined(), args);
+				return uni::Return(uni::Undefined(that.isolate), args);
 			} else if (!that.yielding) {
 				THROW(Exception::Error, "This Fiber is not yielding");
 			} else if (args.Length()) {
@@ -377,9 +486,9 @@ class Fiber {
 			that.MakeWeak();
 
 			Handle<Value> val = uni::Deref(that.isolate, that.yielded);
-			that.yielded.Dispose();
+			uni::Dispose(that.isolate, that.yielded);
 			if (that.yielded_exception) {
-				return uni::Return(ThrowException(val), args);
+				return uni::Return(uni::ThrowException(that.isolate, val), args);
 			} else {
 				return uni::Return(val, args);
 			}
@@ -398,7 +507,7 @@ class Fiber {
 			zombie = true;
 
 			// Setup an exception which will be thrown and rethrown from Fiber::Yield()
-			Handle<Value> zombie_exception = Exception::Error(String::New("This Fiber is a zombie"));
+			Handle<Value> zombie_exception = Exception::Error(uni::NewLatin1String(isolate, "This Fiber is a zombie"));
 			uni::Reset(isolate, this->zombie_exception, zombie_exception);
 			uni::Reset(isolate, yielded, zombie_exception);
 			yielded_exception = true;
@@ -412,10 +521,10 @@ class Fiber {
 			// Make sure this is the exception we threw
 			if (yielded_exception && yielded == zombie_exception) {
 				yielded_exception = false;
-				yielded.Dispose();
-				uni::Reset<Value>(isolate, yielded, Undefined());
+				uni::Dispose(isolate, yielded);
+				uni::Reset<Value>(isolate, yielded, uni::Undefined(isolate));
 			}
-			this->zombie_exception.Dispose();
+			uni::Dispose(isolate, this->zombie_exception);
 		}
 
 		/**
@@ -444,9 +553,9 @@ class Fiber {
 		 */
 		Handle<Value> ReturnYielded() {
 			Handle<Value> val = uni::Deref(isolate, yielded);
-			yielded.Dispose();
+			uni::Dispose(isolate, yielded);
 			if (yielded_exception) {
-				return ThrowException(val);
+				return uni::ThrowException(isolate, val);
 			} else {
 				return val;
 			}
@@ -474,7 +583,7 @@ class Fiber {
 				constraints.set_stack_limit(reinterpret_cast<uint32_t*>(
 					(size_t*)that.this_fiber->bottom() + 32 * 1024
 				));
-				SetResourceConstraints(&constraints);
+				uni::SetResourceConstraints(that.isolate, &constraints);
 
 				TryCatch try_catch;
 				that.ClearWeak();
@@ -483,7 +592,7 @@ class Fiber {
 
 				// Workaround for v8 issue #1180
 				// http://code.google.com/p/v8/issues/detail?id=1180
-				Script::Compile(String::New("void 0;"));
+				Script::Compile(uni::NewLatin1String(that.isolate, "void 0;"));
 
 				Handle<Value> yielded;
 				if (args->Length()) {
@@ -507,7 +616,7 @@ class Fiber {
 
 				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
 				// otherwise.
-				V8::AdjustAmountOfExternalAllocatedMemory(-(int)(that.this_fiber->size() * GC_ADJUST));
+				uni::AdjustAmountOfExternalAllocatedMemory(that.isolate, -(int)(that.this_fiber->size() * GC_ADJUST));
 
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
@@ -537,9 +646,9 @@ class Fiber {
 			Fiber& that = *current;
 
 			if (that.zombie) {
-				return uni::Return(ThrowException(uni::Deref(that.isolate, that.zombie_exception)), args);
+				return uni::Return(uni::ThrowException(that.isolate, uni::Deref(that.isolate, that.zombie_exception)), args);
 			} else if (args.Length() == 0) {
-				uni::Reset<Value>(that.isolate, that.yielded, Undefined());
+				uni::Reset<Value>(that.isolate, that.yielded, Undefined(that.isolate));
 			} else if (args.Length() == 1) {
 				uni::Reset(that.isolate, that.yielded, args[0]);
 			} else {
@@ -573,17 +682,17 @@ class Fiber {
 		 */
 		static uni::FunctionType GetStarted(Local<String> property, const uni::GetterCallbackInfo& info) {
 			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 1) {
-				return uni::Return(Undefined(), info);
+				return uni::Return(uni::Undefined(Isolate::GetCurrent()), info);
 			}
 			Fiber& that = Unwrap(info.This());
-			return uni::Return(Boolean::New(that.started), info);
+			return uni::Return(uni::NewBoolean(that.isolate, that.started), info);
 		}
 
 		static uni::FunctionType GetCurrent(Local<String> property, const uni::GetterCallbackInfo& info) {
 			if (current) {
 				return uni::Return(current->handle, info);
 			} else {
-				return uni::Return(Undefined(), info);
+				return uni::Return(uni::Undefined(Isolate::GetCurrent()), info);
 			}
 		}
 
@@ -591,7 +700,7 @@ class Fiber {
 		 * Allow access to coroutine pool size
 		 */
 		static uni::FunctionType GetPoolSize(Local<String> property, const uni::GetterCallbackInfo& info) {
-			return uni::Return(Number::New(Coroutine::pool_size), info);
+			return uni::Return(uni::NewNumber(Isolate::GetCurrent(), Coroutine::pool_size), info);
 		}
 
 		static void SetPoolSize(Local<String> property, Local<Value> value, const uni::SetterCallbackInfo& info) {
@@ -602,7 +711,7 @@ class Fiber {
 		 * Return number of fibers that have been created
 		 */
 		static uni::FunctionType GetFibersCreated(Local<String> property, const uni::GetterCallbackInfo& info) {
-			return uni::Return(Number::New(Coroutine::coroutines_created()), info);
+			return uni::Return(uni::NewNumber(Isolate::GetCurrent(), Coroutine::coroutines_created()), info);
 		}
 
 	public:
@@ -622,39 +731,39 @@ class Fiber {
 			current = NULL;
 
 			// Fiber constructor
-			Handle<FunctionTemplate> tmpl = FunctionTemplate::New(New);
+			Handle<FunctionTemplate> tmpl = uni::NewFunctionTemplate(isolate, New);
 			uni::Reset(isolate, Fiber::tmpl, tmpl);
-			tmpl->SetClassName(String::NewSymbol("Fiber"));
+			tmpl->SetClassName(uni::NewLatin1Symbol(isolate, "Fiber"));
 
 			// Guard which only allows these methods to be called on a fiber; prevents
 			// `fiber.run.call({})` from seg faulting.
-			Handle<Signature> sig = Signature::New(tmpl);
+			Handle<Signature> sig = uni::NewSignature(isolate, tmpl);
 			tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
 			// Fiber.prototype
 			Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
-			proto->Set(String::NewSymbol("reset"),
-				FunctionTemplate::New(Reset, Handle<Value>(), sig));
-			proto->Set(String::NewSymbol("run"),
-				FunctionTemplate::New(Run, Handle<Value>(), sig));
-			proto->Set(String::NewSymbol("throwInto"),
-				FunctionTemplate::New(ThrowInto, Handle<Value>(), sig));
-			proto->SetAccessor(String::NewSymbol("started"), GetStarted);
+			proto->Set(uni::NewLatin1Symbol(isolate, "reset"),
+				uni::NewFunctionTemplate(isolate, Reset, Handle<Value>(), sig));
+			proto->Set(uni::NewLatin1Symbol(isolate, "run"),
+				uni::NewFunctionTemplate(isolate, Run, Handle<Value>(), sig));
+			proto->Set(uni::NewLatin1Symbol(isolate, "throwInto"),
+				uni::NewFunctionTemplate(isolate, ThrowInto, Handle<Value>(), sig));
+			proto->SetAccessor(uni::NewLatin1Symbol(isolate, "started"), GetStarted);
 
 			// Global yield() function
-			Handle<Function> yield = FunctionTemplate::New(Yield_)->GetFunction();
-			Handle<String> sym_yield = String::NewSymbol("yield");
+			Handle<Function> yield = uni::NewFunctionTemplate(isolate, Yield_)->GetFunction();
+			Handle<String> sym_yield = uni::NewLatin1Symbol(isolate, "yield");
 			target->Set(sym_yield, yield);
 
 			// Fiber properties
 			Handle<Function> fn = tmpl->GetFunction();
 			fn->Set(sym_yield, yield);
-			fn->SetAccessor(String::NewSymbol("current"), GetCurrent);
-			fn->SetAccessor(String::NewSymbol("poolSize"), GetPoolSize, SetPoolSize);
-			fn->SetAccessor(String::NewSymbol("fibersCreated"), GetFibersCreated);
+			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "current"), GetCurrent);
+			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "poolSize"), GetPoolSize, SetPoolSize);
+			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "fibersCreated"), GetFibersCreated);
 
 			// Global Fiber
-			target->Set(String::NewSymbol("Fiber"), fn, ReadOnly);
+			target->Set(uni::NewLatin1Symbol(isolate, "Fiber"), fn, ReadOnly);
 			uni::Reset(isolate, fiber_object, fn);
 		}
 };
@@ -670,13 +779,13 @@ Persistent<Value> Fiber::fatal_stack;
 bool did_init = false;
 
 extern "C" void init(Handle<Object> target) {
-	if (did_init || !target->Get(String::New("Fiber"))->IsUndefined()) {
+	Isolate* isolate = Isolate::GetCurrent();
+	if (did_init || !target->Get(uni::NewLatin1Symbol(isolate, "Fiber"))->IsUndefined()) {
 		// Oh god. Node will call init() twice even though the library was loaded only once. See Node
 		// issue #2621 (no fix).
 		return;
 	}
 	did_init = true;
-	Isolate* isolate = Isolate::GetCurrent();
 	uni::HandleScope scope(isolate);
 	Coroutine::init(isolate);
 	Fiber::Init(target);
