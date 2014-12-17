@@ -20,9 +20,10 @@
 using namespace std;
 
 const size_t v8_tls_keys = 3;
-static pthread_key_t floor_thread_key = 0;
-static pthread_key_t ceil_thread_key = 0;
 static pthread_key_t coro_thread_key = 0;
+static pthread_key_t isolate_key = 0;
+static pthread_key_t thread_id_key = 0;
+static pthread_key_t thread_data_key = 0;
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
@@ -40,15 +41,38 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(isolate != NULL);
 	v8::Locker locker(isolate);
 	isolate->Enter();
-	floor_thread_key = 0x7777;
-	for (pthread_key_t ii = coro_thread_key - 1; ii >= (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
-		if (pthread_getspecific(ii) == isolate) {
-			floor_thread_key = ii;
-			break;
+	size_t thread_id = v8::V8::GetCurrentThreadId();
+	for (pthread_key_t ii = (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); ii < coro_thread_key; ++ii) {
+		void* tls = pthread_getspecific(ii);
+		if (!isolate_key) {
+			if (tls == isolate) {
+				isolate_key = ii;
+			}
+		} else if (!thread_id_key) {
+			if ((size_t)tls == thread_id) {
+				thread_id_key = ii;
+			}
+		} else {
+#ifdef WINDOWS
+			MEMORY_BASIC_INFORMATION mbi;
+			if (!VirtualQueryEx(GetCurrentProcess(), tls, &mbi, sizeof(mbi))) {
+				continue;
+			}
+			if (!mbi.State & MEM_COMMIT) {
+				continue;
+			}
+			// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
+			// spooky gaps in the TLS key space
+#endif
+			if (*(void**)tls == isolate) {
+				// First member of per-thread data is the isolate
+				assert(!thread_data_key);
+				thread_data_key = ii;
+				break;
+			}
 		}
 	}
-	assert(floor_thread_key != 0x7777);
-	ceil_thread_key = floor_thread_key + v8_tls_keys - 1;
+	assert(thread_data_key);
 	isolate->Exit();
 	return NULL;
 }
@@ -160,13 +184,14 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 void Coroutine::transfer(Coroutine& next) {
 	assert(this != &next);
 #ifndef CORO_PTHREAD
-	{
-		for (pthread_key_t ii = floor_thread_key; ii <= ceil_thread_key; ++ii) {
-			// Swap TLS keys with fiber locals
-			fls_data[ii - floor_thread_key] = pthread_getspecific(ii);
-			pthread_setspecific(ii, next.fls_data[ii - floor_thread_key]);
-		}
-	}
+	fls_data[0] = pthread_getspecific(isolate_key);
+	fls_data[1] = pthread_getspecific(thread_id_key);
+	fls_data[2] = pthread_getspecific(thread_data_key);
+
+	pthread_setspecific(isolate_key, next.fls_data[0]);
+	pthread_setspecific(thread_id_key, next.fls_data[1]);
+	pthread_setspecific(thread_data_key, next.fls_data[2]);
+
 	pthread_setspecific(coro_thread_key, &next);
 #endif
 	coro_transfer(&context, &next.context);
