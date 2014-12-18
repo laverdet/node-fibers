@@ -31,6 +31,22 @@ static vector<Coroutine*> fiber_pool;
 static Coroutine* delete_me = NULL;
 size_t Coroutine::pool_size = 120;
 
+static bool can_poke(void* addr) {
+#ifdef WINDOWS
+	MEMORY_BASIC_INFORMATION mbi;
+	if (!VirtualQueryEx(GetCurrentProcess(), tls, &mbi, sizeof(mbi))) {
+		return false;
+	}
+	if (!mbi.State & MEM_COMMIT) {
+		return false;
+	}
+#else
+	// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
+	// spooky gaps in the TLS key space
+	return true;
+#endif
+}
+
 #ifndef WINDOWS
 static void* find_thread_id_key(void* arg)
 #else
@@ -41,38 +57,41 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(isolate != NULL);
 	v8::Locker locker(isolate);
 	isolate->Enter();
-	size_t thread_id = v8::V8::GetCurrentThreadId();
+
+	// First pass-- find isolate thread key
 	for (pthread_key_t ii = (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); ii < coro_thread_key; ++ii) {
 		void* tls = pthread_getspecific(ii);
 		if (!isolate_key) {
 			if (tls == isolate) {
 				isolate_key = ii;
-			}
-		} else if (!thread_id_key) {
-			if ((size_t)tls == thread_id) {
-				thread_id_key = ii;
-			}
-		} else {
-#ifdef WINDOWS
-			MEMORY_BASIC_INFORMATION mbi;
-			if (!VirtualQueryEx(GetCurrentProcess(), tls, &mbi, sizeof(mbi))) {
-				continue;
-			}
-			if (!mbi.State & MEM_COMMIT) {
-				continue;
-			}
-			// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
-			// spooky gaps in the TLS key space
-#endif
-			if (*(void**)tls == isolate) {
-				// First member of per-thread data is the isolate
-				assert(!thread_data_key);
-				thread_data_key = ii;
 				break;
 			}
 		}
 	}
+
+	// Second pass-- find data key
+	size_t thread_id;
+	for (pthread_key_t ii = isolate_key + 2; ii < coro_thread_key; ++ii) {
+		void* tls = pthread_getspecific(ii);
+		if (can_poke(tls) && *(void**)tls == isolate) {
+			// First member of per-thread data is the isolate
+			thread_data_key = ii;
+			thread_id = *((size_t*)tls + 1);
+			break;
+		}
+	}
 	assert(thread_data_key);
+
+	// Third pass-- find thread id key
+	for (pthread_key_t ii = isolate_key + 1; ii < thread_data_key; ++ii) {
+		void* tls = pthread_getspecific(ii);
+		if ((size_t)tls == thread_id) {
+			thread_id_key = ii;
+			break;
+		}
+	}
+	assert(thread_id_key);
+
 	isolate->Exit();
 	return NULL;
 }
