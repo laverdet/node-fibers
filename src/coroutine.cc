@@ -20,6 +20,7 @@
 using namespace std;
 
 const size_t v8_tls_keys = 3;
+static std::vector<void*> fls_data_pool;
 static pthread_key_t coro_thread_key = 0;
 static pthread_key_t isolate_key = 0x7777;
 static pthread_key_t thread_id_key = 0x7777;
@@ -137,6 +138,12 @@ void Coroutine::trampoline(void* that) {
 	// base is slightly different.
 	static_cast<Coroutine*>(that)->stack_base = (size_t*)_AddressOfReturnAddress() - stack_size + 16;
 #endif
+	if (!fls_data_pool.empty()) {
+		pthread_setspecific(thread_data_key, fls_data_pool.back());
+		pthread_setspecific(thread_id_key, fls_data_pool.at(fls_data_pool.size() - 2));
+		pthread_setspecific(isolate_key, fls_data_pool.at(fls_data_pool.size() - 3));
+		fls_data_pool.resize(fls_data_pool.size() - 3);
+	}
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
@@ -243,9 +250,11 @@ void Coroutine::finish(Coroutine& next) {
 		if (fiber_pool.size() < pool_size) {
 			fiber_pool.push_back(this);
 		} else {
-			// TODO?: This assumes that we didn't capture any keys with dtors. This may not always be
-			// true, and if it is not there will be memory leaks.
-
+			// We can mitigate v8's leakage by saving these thread locals. See v8 issue #3777
+			fls_data_pool.reserve(fls_data_pool.size() + 3);
+			fls_data_pool.push_back(pthread_getspecific(isolate_key));
+			fls_data_pool.push_back(pthread_getspecific(thread_id_key));
+			fls_data_pool.push_back(pthread_getspecific(thread_data_key));
 			// Can't delete right now because we're currently on this stack!
 			assert(delete_me == NULL);
 			delete_me = this;
