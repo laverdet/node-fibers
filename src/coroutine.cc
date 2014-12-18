@@ -21,9 +21,9 @@ using namespace std;
 
 const size_t v8_tls_keys = 3;
 static pthread_key_t coro_thread_key = 0;
-static pthread_key_t isolate_key = 0;
-static pthread_key_t thread_id_key = 0;
-static pthread_key_t thread_data_key = 0;
+static pthread_key_t isolate_key = 0x7777;
+static pthread_key_t thread_id_key = 0x7777;
+static pthread_key_t thread_data_key = 0x7777;
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
@@ -61,13 +61,12 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	// First pass-- find isolate thread key
 	for (pthread_key_t ii = (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); ii < coro_thread_key; ++ii) {
 		void* tls = pthread_getspecific(ii);
-		if (!isolate_key) {
-			if (tls == isolate) {
-				isolate_key = ii;
-				break;
-			}
+		if (tls == isolate) {
+			isolate_key = ii;
+			break;
 		}
 	}
+	assert(isolate_key != 0x7777);
 
 	// Second pass-- find data key
 	size_t thread_id;
@@ -80,7 +79,7 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 			break;
 		}
 	}
-	assert(thread_data_key);
+	assert(thread_data_key != 0x7777);
 
 	// Third pass-- find thread id key
 	for (pthread_key_t ii = isolate_key + 1; ii < thread_data_key; ++ii) {
@@ -90,7 +89,7 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 			break;
 		}
 	}
-	assert(thread_id_key);
+	assert(thread_id_key != 0x7777);
 
 	isolate->Exit();
 	return NULL;
