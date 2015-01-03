@@ -35,12 +35,13 @@ size_t Coroutine::pool_size = 120;
 static bool can_poke(void* addr) {
 #ifdef WINDOWS
 	MEMORY_BASIC_INFORMATION mbi;
-	if (!VirtualQueryEx(GetCurrentProcess(), tls, &mbi, sizeof(mbi))) {
+	if (!VirtualQueryEx(GetCurrentProcess(), addr, &mbi, sizeof(mbi))) {
 		return false;
 	}
 	if (!mbi.State & MEM_COMMIT) {
 		return false;
 	}
+	return true;
 #else
 	// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
 	// spooky gaps in the TLS key space
