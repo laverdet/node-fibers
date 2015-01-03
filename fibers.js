@@ -1,3 +1,6 @@
+if (process.fiberLib) {
+	return module.exports = process.fiberLib;
+}
 var fs = require('fs'), path = require('path');
 
 // Seed random numbers [gh-82]
@@ -14,4 +17,4 @@ try {
 }
 
 // Pull in fibers implementation
-module.exports = require(modPath).Fiber;
+process.fiberLib = module.exports = require(modPath).Fiber;
