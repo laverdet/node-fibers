@@ -2,7 +2,11 @@
 var Fiber = require('fibers');
 
 function main() {
-	var proc = require('child_process').spawn(process.execPath, [process.argv[1], 'child']);
+	var proc = require('child_process').spawn(
+		process.execPath,
+		[process.argv[1], 'child'],
+		{env: process.env}
+	);
 	function ondata(data) {
 		process.stdout.write(data+ '');
 	}
