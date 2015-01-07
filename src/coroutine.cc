@@ -38,7 +38,7 @@ static bool can_poke(void* addr) {
 	if (!VirtualQueryEx(GetCurrentProcess(), addr, &mbi, sizeof(mbi))) {
 		return false;
 	}
-	if (!mbi.State & MEM_COMMIT) {
+	if (!(mbi.State & MEM_COMMIT)) {
 		return false;
 	}
 	return true;
