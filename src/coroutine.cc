@@ -60,8 +60,26 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	v8::Locker locker(isolate);
 	isolate->Enter();
 
+	// https://github.com/laverdet/node-fibers/issues/122#issuecomment-20026006
+	// 
+	// Basically that function should run through calling TlsGetValue() until it finds an address that matches isolate (which is just Isolate::GetCurrent()).
+
+	// This thread local is created in node/deps/v8/src/isolate.cc:
+	// isolate_key_ = Thread::CreateThreadLocalKey();
+	// thread_id_key_ = Thread::CreateThreadLocalKey();
+	// per_isolate_thread_data_key_ = Thread::CreateThreadLocalKey();
+
+	// The goal of that function is to find that thread local so we can fool v8 into thinking there are multiple threads.
+
+	// The problem is that fiber has to hook into functionality that's not exposed by v8, and seems to be failing on your system.
+
+	// I recommend building node as debug and stepping through v8::internal::Isolate::EnsureDefaultIsolate() and figuring how what the value for isolate_key_ is. Then step through find_thread_id_key and figure out why it can't find that value.
+
+	// Basically the whole job of find_thread_id_key is to discover isolate_key_ from v8 (since it's not exposed in an API). Without that key, fibers can't function.
+	assert(coro_thread_key < TLS_MINIMUM_AVAILABLE);
+
 	// First pass-- find isolate thread key
-	for (pthread_key_t ii = (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); ii < coro_thread_key; ++ii) {
+	for (pthread_key_t ii = 0; ii < coro_thread_key; ++ii) {
 		void* tls = pthread_getspecific(ii);
 		if (tls == isolate) {
 			isolate_key = ii;
