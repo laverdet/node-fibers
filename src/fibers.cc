@@ -137,7 +137,11 @@ namespace uni {
 	}
 
 	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
+		// Newer V8 versions require that resource constraints
+		// are specified upfront, when the isolate is created.
+#if NODE_MODULE_VERSION == 0x000D
 		v8::SetResourceConstraints(isolate, constraints);
+#endif
 	}
 
 #else
