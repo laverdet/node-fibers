@@ -20,15 +20,34 @@
 using namespace std;
 
 const size_t v8_tls_keys = 3;
-static pthread_key_t floor_thread_key = 0;
-static pthread_key_t ceil_thread_key = 0;
+static std::vector<void*> fls_data_pool;
 static pthread_key_t coro_thread_key = 0;
+static pthread_key_t isolate_key = 0x7777;
+static pthread_key_t thread_id_key = 0x7777;
+static pthread_key_t thread_data_key = 0x7777;
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
 static vector<Coroutine*> fiber_pool;
 static Coroutine* delete_me = NULL;
 size_t Coroutine::pool_size = 120;
+
+static bool can_poke(void* addr) {
+#ifdef WINDOWS
+	MEMORY_BASIC_INFORMATION mbi;
+	if (!VirtualQueryEx(GetCurrentProcess(), addr, &mbi, sizeof(mbi))) {
+		return false;
+	}
+	if (!(mbi.State & MEM_COMMIT)) {
+		return false;
+	}
+	return true;
+#else
+	// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
+	// spooky gaps in the TLS key space
+	return true;
+#endif
+}
 
 #ifndef WINDOWS
 static void* find_thread_id_key(void* arg)
@@ -40,15 +59,41 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(isolate != NULL);
 	v8::Locker locker(isolate);
 	isolate->Enter();
-	floor_thread_key = 0x7777;
-	for (pthread_key_t ii = coro_thread_key - 1; ii >= (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); --ii) {
-		if (pthread_getspecific(ii) == isolate) {
-			floor_thread_key = ii;
+
+	// First pass-- find isolate thread key
+	for (pthread_key_t ii = (coro_thread_key >= 20 ? coro_thread_key - 20 : 0); ii < coro_thread_key; ++ii) {
+		void* tls = pthread_getspecific(ii);
+		if (tls == isolate) {
+			isolate_key = ii;
 			break;
 		}
 	}
-	assert(floor_thread_key != 0x7777);
-	ceil_thread_key = floor_thread_key + v8_tls_keys - 1;
+	assert(isolate_key != 0x7777);
+
+	// Second pass-- find data key
+	int thread_id;
+	for (pthread_key_t ii = isolate_key + 2; ii < coro_thread_key; ++ii) {
+		void* tls = pthread_getspecific(ii);
+		if (can_poke(tls) && *(void**)tls == isolate) {
+			// First member of per-thread data is the isolate
+			thread_data_key = ii;
+			// Second member is the thread id
+			thread_id = *(int*)((void**)tls + 1);
+			break;
+		}
+	}
+	assert(thread_data_key != 0x7777);
+
+	// Third pass-- find thread id key
+	for (pthread_key_t ii = isolate_key + 1; ii < thread_data_key; ++ii) {
+		int tls = static_cast<int>(reinterpret_cast<intptr_t>(pthread_getspecific(ii)));
+		if (tls == thread_id) {
+			thread_id_key = ii;
+			break;
+		}
+	}
+	assert(thread_id_key != 0x7777);
+
 	isolate->Exit();
 	return NULL;
 }
@@ -94,6 +139,12 @@ void Coroutine::trampoline(void* that) {
 	// base is slightly different.
 	static_cast<Coroutine*>(that)->stack_base = (size_t*)_AddressOfReturnAddress() - stack_size + 16;
 #endif
+	if (!fls_data_pool.empty()) {
+		pthread_setspecific(thread_data_key, fls_data_pool.back());
+		pthread_setspecific(thread_id_key, fls_data_pool.at(fls_data_pool.size() - 2));
+		pthread_setspecific(isolate_key, fls_data_pool.at(fls_data_pool.size() - 3));
+		fls_data_pool.resize(fls_data_pool.size() - 3);
+	}
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
@@ -160,13 +211,14 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 void Coroutine::transfer(Coroutine& next) {
 	assert(this != &next);
 #ifndef CORO_PTHREAD
-	{
-		for (pthread_key_t ii = floor_thread_key; ii <= ceil_thread_key; ++ii) {
-			// Swap TLS keys with fiber locals
-			fls_data[ii - floor_thread_key] = pthread_getspecific(ii);
-			pthread_setspecific(ii, next.fls_data[ii - floor_thread_key]);
-		}
-	}
+	fls_data[0] = pthread_getspecific(isolate_key);
+	fls_data[1] = pthread_getspecific(thread_id_key);
+	fls_data[2] = pthread_getspecific(thread_data_key);
+
+	pthread_setspecific(isolate_key, next.fls_data[0]);
+	pthread_setspecific(thread_id_key, next.fls_data[1]);
+	pthread_setspecific(thread_data_key, next.fls_data[2]);
+
 	pthread_setspecific(coro_thread_key, &next);
 #endif
 	coro_transfer(&context, &next.context);
@@ -199,9 +251,11 @@ void Coroutine::finish(Coroutine& next) {
 		if (fiber_pool.size() < pool_size) {
 			fiber_pool.push_back(this);
 		} else {
-			// TODO?: This assumes that we didn't capture any keys with dtors. This may not always be
-			// true, and if it is not there will be memory leaks.
-
+			// We can mitigate v8's leakage by saving these thread locals. See v8 issue #3777
+			fls_data_pool.reserve(fls_data_pool.size() + 3);
+			fls_data_pool.push_back(pthread_getspecific(isolate_key));
+			fls_data_pool.push_back(pthread_getspecific(thread_id_key));
+			fls_data_pool.push_back(pthread_getspecific(thread_data_key));
 			// Can't delete right now because we're currently on this stack!
 			assert(delete_me == NULL);
 			delete_me = this;

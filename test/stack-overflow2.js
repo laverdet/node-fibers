@@ -24,6 +24,6 @@ Fiber(function() {
 	function wasteStack(ii) {
 		ii ? wasteStack(ii - 1) : fn();
 	}
-	wasteStack(max - 94);
+	wasteStack(max - 128); // not sure if this test is even that useful because of this padding
 	console.log('pass');
 }).run();

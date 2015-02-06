@@ -1,5 +1,5 @@
 var Fiber = require('fibers');
-var Future = require('fibers/future');
+var Future = require('future');
 
 // Possible outputs:
 // pass: exception is thrown and caught in uncaughtException

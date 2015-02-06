@@ -4,7 +4,16 @@ var spawn = require('child_process').spawn;
 var path = require('path');
 
 function runTest(test, cb) {
-	var proc = spawn(process.execPath, [path.join('test', test)], {env: {NODE_PATH: __dirname}});
+	var env = {};
+	for (var ii in process.env) {
+		env[ii] = process.env[ii];
+	}
+	env.NODE_PATH = __dirname;
+	var proc = spawn(
+		process.execPath,
+		[path.join('test', test)],
+		{env: env}
+	);
 	proc.stdout.setEncoding('utf8');
 	proc.stderr.setEncoding('utf8');
 
@@ -20,7 +29,7 @@ function runTest(test, cb) {
 	proc.on('exit', function(code) {
 		if (stdout !== 'pass\n' || stderr !== '') {
 			console.error(
-				'test: *fail*\n'+
+				test+ ': *fail*\n'+
 				'code: '+ code+ '\n'+
 				'stderr: '+ stderr+ '\n'+
 				'stdout: '+ stdout
