@@ -1,6 +1,7 @@
 #include "coroutine.h"
 #include <assert.h>
 #include <node.h>
+#include <node_version.h>
 
 #include <vector>
 
@@ -778,7 +779,10 @@ vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
 bool did_init = false;
 
-extern "C" void init(Handle<Object> target) {
+#if !NODE_VERSION_AT_LEAST(0,10,0)
+extern "C"
+#endif
+void init(Handle<Object> target) {
 	Isolate* isolate = Isolate::GetCurrent();
 	if (did_init || !target->Get(uni::NewLatin1Symbol(isolate, "Fiber"))->IsUndefined()) {
 		// Oh god. Node will call init() twice even though the library was loaded only once. See Node
