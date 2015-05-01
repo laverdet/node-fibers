@@ -137,7 +137,7 @@ namespace uni {
 	}
 
 	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
-		v8::SetResourceConstraints(isolate, constraints);
+			SetResourceConstraints(isolate, constraints);
 	}
 
 #else
@@ -248,7 +248,7 @@ namespace uni {
 	}
 
 	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
-		v8::SetResourceConstraints(constraints);
+			SetResourceConstraints(constraints);
 	}
 
 #endif
