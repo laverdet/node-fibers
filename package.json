@@ -15,6 +15,7 @@
 		"type": "git",
 		"url": "git://github.com/laverdet/node-fibers.git"
 	},
+	"license": "MIT",
 	"engines": {
 		"node": ">=0.5.2"
 	}
