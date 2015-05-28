@@ -553,7 +553,9 @@ class Fiber {
 			// already running.
 			{
 				Unlocker unlocker(isolate);
+				isolate->Exit();
 				this_fiber->run();
+				isolate->Enter();
 			}
 
 			// At this point the fiber either returned or called `yield()`.
@@ -673,7 +675,9 @@ class Fiber {
 			{
 				Unlocker unlocker(that.isolate);
 				that.yielding = true;
+				that.isolate->Exit();
 				that.entry_fiber->run();
+				that.isolate->Enter();
 				that.yielding = false;
 			}
 			// Now `run()` has been called again.

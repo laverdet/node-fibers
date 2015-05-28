@@ -3,6 +3,7 @@ var fs = require('fs');
 var spawn = require('child_process').spawn;
 var path = require('path');
 
+var ret = 0;
 function runTest(test, cb) {
 	var env = {};
 	for (var ii in process.env) {
@@ -28,12 +29,16 @@ function runTest(test, cb) {
 
 	proc.on('exit', function(code) {
 		if (stdout !== 'pass\n' || stderr !== '') {
+			ret = 1;
 			console.error(
 				test+ ': *fail*\n'+
 				'code: '+ code+ '\n'+
 				'stderr: '+ stderr+ '\n'+
 				'stdout: '+ stdout
 			);
+		} else if (code !== 0) {
+			ret = 1;
+			console.error(test+ ': fail ('+ code+ ')');
 		} else {
 			console.log(test+ ': '+ 'pass');
 		}
@@ -41,18 +46,15 @@ function runTest(test, cb) {
 	});
 }
 
-var cb = function(err) {
-	if (err) {
-		console.error(String(err));
-		process.exit(1);
-	}
+var cb = function() {
+	process.exit(ret);
 };
 fs.readdirSync('./test').reverse().forEach(function(file) {
-	cb = new function(cb, file) {
+	cb = new function(cb) {
 		return function(err) {
 			if (err) return cb(err);
 			runTest(file, cb);
 		};
-	}(cb, file);
+	}(cb);
 });
 cb();
