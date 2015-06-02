@@ -193,11 +193,14 @@ Future.prototype = {
 			throw new Error('Future must resolve before value is ready');
 		} else if (this.error) {
 			// Link the stack traces up
-			var stack = {}, error = this.error instanceof Object ? this.error : new Error(this.error);
+			var stack = {}, replacedStack, error = this.error instanceof Object ? this.error : new Error(this.error);
 			var longError = Object.create(error);
 			Error.captureStackTrace(stack, Future.prototype.get);
 			Object.defineProperty(longError, 'stack', {
 				get: function() {
+					if (replacedStack) {
+						return replacedStack;
+					}
 					var baseStack = error.stack;
 					if (baseStack) {
 						baseStack = baseStack.split('\n');
@@ -209,6 +212,9 @@ Future.prototype = {
 					} else {
 						return stack.stack;
 					}
+				},
+				set: function (value) {
+					replacedStack = value;
 				},
 				enumerable: true,
 			});
