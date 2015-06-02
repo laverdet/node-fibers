@@ -126,11 +126,9 @@ namespace uni {
 
 	Handle<Signature> NewSignature(
 		Isolate* isolate,
-		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
-		int argc = 0,
-		Handle<FunctionTemplate> argv[] = 0
+		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>()
 	) {
-		return Signature::New(isolate, receiver, argc, argv);
+		return Signature::New(isolate, receiver);
 	}
 
 	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
