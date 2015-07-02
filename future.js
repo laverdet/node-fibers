@@ -222,7 +222,16 @@ Future.prototype = {
 							return localStack.stack;
 						}
 					},
-					enumerable: true,
+					set: function(stack) {
+						Object.defineProperty(error, 'stack', {
+							value: stack,
+							configurable: true,
+							enumerable: false,
+							writable: true,
+						});
+					},
+					configurable: true,
+					enumerable: false,
 				});
 			}
 			throw error;
