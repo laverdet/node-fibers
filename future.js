@@ -2,10 +2,14 @@
 var Fiber = require('./fibers');
 var util = require('util');
 module.exports = Future;
-Function.prototype.future = function() {
+Function.prototype.future = function(detach) {
 	var fn = this;
 	var ret = function() {
-		return new FiberFuture(fn, this, arguments);
+		var future = new FiberFuture(fn, this, arguments);
+		if (detach) {
+			future.detach();
+		}
+		return future;
 	};
 	ret.toString = function() {
 		return '<<Future '+ fn+ '.future()>>';
