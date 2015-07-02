@@ -131,6 +131,17 @@ namespace uni {
 		return Signature::New(isolate, receiver);
 	}
 
+	class ReverseIsolateScope {
+		Isolate* isolate;
+		public:
+			explicit inline ReverseIsolateScope(Isolate* isolate) : isolate(isolate) {
+				isolate->Exit();
+			}
+			inline ~ReverseIsolateScope() {
+				isolate->Enter();
+			}
+	};
+
 	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
 		isolate->AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
 	}
@@ -249,6 +260,10 @@ namespace uni {
 	) {
 		return Signature::New(receiver, argc, argv);
 	}
+
+	class ReverseIsolateScope {
+		public: explicit inline ReverseIsolateScope(Isolate* isolate) {}
+	};
 
 	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
 		V8::AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
@@ -552,9 +567,8 @@ class Fiber {
 			// already running.
 			{
 				Unlocker unlocker(isolate);
-				isolate->Exit();
+				uni::ReverseIsolateScope isolate_scope(isolate);
 				this_fiber->run();
-				isolate->Enter();
 			}
 
 			// At this point the fiber either returned or called `yield()`.
@@ -673,10 +687,9 @@ class Fiber {
 			// keep the handle around.
 			{
 				Unlocker unlocker(that.isolate);
+				uni::ReverseIsolateScope isolate_scope(that.isolate);
 				that.yielding = true;
-				that.isolate->Exit();
 				that.entry_fiber->run();
-				that.isolate->Enter();
 				that.yielding = false;
 			}
 			// Now `run()` has been called again.
