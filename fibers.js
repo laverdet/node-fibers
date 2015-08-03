@@ -8,12 +8,12 @@ Math.random();
 
 // Look for binary for this platform
 var v8 = 'v8-'+ /[0-9]+\.[0-9]+/.exec(process.versions.v8)[0];
-var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ v8, 'fibers');
+var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ v8, 'fibers.node');
 try {
-	fs.statSync(modPath+ '.node');
+	fs.statSync(modPath);
 } catch (ex) {
 	// No binary!
-	throw new Error('`'+ modPath+ '.node` is missing. Try reinstalling `node-fibers`?');
+	throw new Error('`'+ modPath+ '` is missing. Try reinstalling `node-fibers`?');
 }
 
 // Pull in fibers implementation
