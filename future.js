@@ -17,19 +17,43 @@ Function.prototype.future = function(detach) {
 	return ret;
 };
 
-Future.activeFutures = [];
-var activeFutureCtorStack = [];
+var cachedFiberFutures = [];
+
+function getCachedFiberFuture() {
+	for (var index = 0; index < cachedFiberFutures.length; index++) {
+		var element = cachedFiberFutures[index];
+		if(element.fiber === Fiber.current) {
+			return element;
+		}
+	}
+}
 
 function addActiveFuture(future) {
-	Future.activeFutures.push(future);
-	activeFutureCtorStack.push(new Error().stack);
+	var cachedFiberFuture = getCachedFiberFuture();
+	if(!cachedFiberFuture) {
+		cachedFiberFuture = {
+			activeFutures: [],
+			fiber: Fiber.current,
+			activeFuturesCtorStacks: []
+		};
+		cachedFiberFutures.push(cachedFiberFuture);
+	}
+
+	cachedFiberFuture.activeFutures.push(future);
+	cachedFiberFuture.activeFuturesCtorStacks.push(new Error().stack);
 }
 
 function deleteActiveFuture(future) {
-	var index = Future.activeFutures.indexOf(future);
-	if (index !== -1) {
-		Future.activeFutures.splice(index, 1);
-		activeFutureCtorStack.splice(index, 1);
+	var cachedFiberFuture = getCachedFiberFuture();
+	if(cachedFiberFuture) {
+		var index = cachedFiberFuture.activeFutures.indexOf(future);
+		if (index !== -1) {
+			cachedFiberFuture.activeFutures.splice(index, 1);
+			cachedFiberFuture.activeFuturesCtorStacks.splice(index, 1);
+			cachedFiberFutures = cachedFiberFutures.filter(function(f){
+				return f.activeFutures.length;
+			});
+		}
 	}
 }
 
@@ -136,11 +160,12 @@ Future.fromResult = function(value) {
 }
 
 Future.assertNoFutureLeftBehind = function() {
-	if (Future.activeFutures.length > 0) {
+	var cachedFiberFuture = getCachedFiberFuture();
+	if (cachedFiberFuture && cachedFiberFuture.activeFutures.length) {
 		var message = ["There are outstanding futures. Construction call stacks:"];
-		for (var i = 0; i < Future.activeFutures.length; ++i) {
+		for (var i = 0; i < cachedFiberFuture.activeFutures.length; ++i) {
 			message.push("#" + (i+1).toString());
-			var stack = activeFutureCtorStack[i].split("\n");
+			var stack = cachedFiberFuture.activeFuturesCtorStacks[i].split("\n");
 			stack.shift();
 			while (stack[0] && stack[0].indexOf("future.js") !== -1)
 				stack.shift();
