@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 var cp = require('child_process'),
 	fs = require('fs'),
-	path = require('path');
+	path = require('path'),
+	downloadiojs = require('./download_io.js');
 
 // Parse args
 var force = false, debug = false;
@@ -68,17 +69,17 @@ function build() {
 			}
 			return process.exit(err);
 		}
-		afterBuild();
+		afterBuild(modPath);
 	});
 }
 
 // Move it to expected location
-function afterBuild() {
+function afterBuild(deployPath) {
 	var targetPath = path.join(__dirname, 'build', debug ? 'Debug' : 'Release', 'fibers.node');
-	var installPath = path.join(__dirname, 'bin', modPath, 'fibers.node');
+	var installPath = path.join(__dirname, 'bin', deployPath, 'fibers.node');
 
 	try {
-		fs.mkdirSync(path.join(__dirname, 'bin', modPath));
+		fs.mkdirSync(path.join(__dirname, 'bin', deployPath));
 	} catch (ex) {}
 
 	try {
@@ -89,4 +90,59 @@ function afterBuild() {
 	}
 	fs.renameSync(targetPath, installPath);
 	console.log('Installed in `'+ installPath+ '`');
+}
+
+
+/********* Build for Electron and io.js *********
+* 												*
+* 												*
+************************************************/
+// For new versions of iojs and/or electron, add new elements to this array.
+var electrons = [{target: '0.30.4', iojsversion: '1.6.3', disturl: 'https://atom.io/download/atom-shell', v8: '4.3'}];
+
+for (var i = 0; i < electrons.length; i++) {
+	processElectron(electrons[i]);
+}
+
+function processElectron(electron) {
+	var iojs = path.join(__dirname, 'iojs', electron.iojsversion + ' - ' + arch, 'iojs.exe');
+	var nodegyp = path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + 'Library/Preference' : '/var/local'), "/npm/node_modules/pangyp/bin/node-gyp.js");
+	var args = [nodegyp, 'configure', 'build', '--target=' + electron.target, '--arch=' + arch, '--dist-url=' + electron.disturl];
+	var deployPath = platform + '-' + arch + '-v8-' + electron.v8;
+
+	try {
+		fs.statSync(iojs);
+		console.log('\x1b[32m iojs v ' + electron.iojsversion + ' allready exsists. Continuing to build \x1b[0m');
+		electronBuild(iojs, args, deployPath);
+	} catch (error) {
+		fs.mkdirSync(path.dirname(iojs));
+		downloadiojs.download(electron.iojsversion, iojs, function(error, result) {
+			if (result) {
+				electronBuild(result, args, deployPath);
+			} else {
+				throw error;
+			};
+		});
+	};
+}
+
+function electronBuild(iojs, args, deployPath) {
+	cp.spawn(
+		iojs,
+		args,
+		{stdio: [process.stdin, process.stdout, process.stderr]})
+	.on('exit', function(err) {
+		if (err) {
+			if (err === 127) {
+				console.error(
+					'node-gyp not found! Please upgrade your install of npm! You need at least 1.1.5 (I think) '+
+					'and preferably 1.1.30.'
+				);
+			} else {
+				console.error('Build failed');
+			}
+			return process.exit(err);
+		}
+		afterBuild(deployPath);
+	});
 }
