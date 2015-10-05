@@ -1,6 +1,7 @@
 #include "coroutine.h"
 #include <assert.h>
 #include <node.h>
+#include <node_version.h>
 
 #include <vector>
 
@@ -125,20 +126,37 @@ namespace uni {
 
 	Handle<Signature> NewSignature(
 		Isolate* isolate,
-		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(),
-		int argc = 0,
-		Handle<FunctionTemplate> argv[] = 0
+		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>()
 	) {
-		return Signature::New(isolate, receiver, argc, argv);
+		return Signature::New(isolate, receiver);
 	}
+
+	class ReverseIsolateScope {
+		Isolate* isolate;
+		public:
+			explicit inline ReverseIsolateScope(Isolate* isolate) : isolate(isolate) {
+				isolate->Exit();
+			}
+			inline ~ReverseIsolateScope() {
+				isolate->Enter();
+			}
+	};
 
 	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
 		isolate->AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
 	}
 
-	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
-		v8::SetResourceConstraints(isolate, constraints);
-	}
+	#if NODE_MODULE_VERSION >= 0x002A
+		void SetStackGuard(Isolate* isolate, void* guard) {
+			isolate->SetStackLimit(reinterpret_cast<uintptr_t>(guard));
+		}
+	#else
+		void SetStackGuard(Isolate* isolate, void* guard) {
+			ResourceConstraints constraints;
+			constraints.set_stack_limit(reinterpret_cast<uint32_t*>(guard));
+			v8::SetResourceConstraints(isolate, &constraints);
+		}
+	#endif
 
 #else
 	// Node v0.10.x and lower
@@ -243,14 +261,22 @@ namespace uni {
 		return Signature::New(receiver, argc, argv);
 	}
 
+	class ReverseIsolateScope {
+		public: explicit inline ReverseIsolateScope(Isolate* isolate) {}
+	};
+
 	void AdjustAmountOfExternalAllocatedMemory(Isolate* isolate, int64_t change_in_bytes) {
 		V8::AdjustAmountOfExternalAllocatedMemory(change_in_bytes);
 	}
 
-	void SetResourceConstraints(Isolate* isolate, ResourceConstraints* constraints) {
-		v8::SetResourceConstraints(constraints);
+	void SetStackGuard(Isolate* isolate, void* guard) {
+		ResourceConstraints constraints;
+		// Extra padding for old versions of v8. Shit's fucked.
+		constraints.set_stack_limit(
+			reinterpret_cast<uint32_t*>(guard) + 18 * 1024
+		);
+		v8::SetResourceConstraints(&constraints);
 	}
-
 #endif
 }
 
@@ -541,6 +567,7 @@ class Fiber {
 			// already running.
 			{
 				Unlocker unlocker(isolate);
+				uni::ReverseIsolateScope isolate_scope(isolate);
 				this_fiber->run();
 			}
 
@@ -577,13 +604,9 @@ class Fiber {
 				Isolate::Scope isolate_scope(that.isolate);
 				uni::HandleScope scope(that.isolate);
 
-				// Set the stack guard for this "thread"; allow 128k or 256k of padding past the JS limit for
+				// Set the stack guard for this "thread"; allow 4k of padding past the JS limit for
 				// native v8 code to run
-				ResourceConstraints constraints;
-				constraints.set_stack_limit(reinterpret_cast<uint32_t*>(
-					(size_t*)that.this_fiber->bottom() + 32 * 1024
-				));
-				uni::SetResourceConstraints(that.isolate, &constraints);
+				uni::SetStackGuard(that.isolate, reinterpret_cast<char*>(that.this_fiber->bottom()) + 1024 * 4);
 
 				TryCatch try_catch;
 				that.ClearWeak();
@@ -664,6 +687,7 @@ class Fiber {
 			// keep the handle around.
 			{
 				Unlocker unlocker(that.isolate);
+				uni::ReverseIsolateScope isolate_scope(that.isolate);
 				that.yielding = true;
 				that.entry_fiber->run();
 				that.yielding = false;
@@ -778,7 +802,10 @@ vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
 bool did_init = false;
 
-extern "C" void init(Handle<Object> target) {
+#if !NODE_VERSION_AT_LEAST(0,10,0)
+extern "C"
+#endif
+void init(Handle<Object> target) {
 	Isolate* isolate = Isolate::GetCurrent();
 	if (did_init || !target->Get(uni::NewLatin1Symbol(isolate, "Fiber"))->IsUndefined()) {
 		// Oh god. Node will call init() twice even though the library was loaded only once. See Node

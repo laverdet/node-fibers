@@ -55,7 +55,7 @@ function build() {
 	cp.spawn(
 		process.platform === 'win32' ? 'node-gyp.cmd' : 'node-gyp',
 		['rebuild'].concat(args),
-		{customFds: [0, 1, 2]})
+		{stdio: [process.stdin, process.stdout, process.stderr]})
 	.on('exit', function(err) {
 		if (err) {
 			if (err === 127) {

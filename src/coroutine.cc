@@ -4,6 +4,7 @@
 #include <pthread.h>
 #else
 #include <windows.h>
+#include <intrin.h>
 // Stub pthreads into Windows approximations
 #define pthread_t HANDLE
 #define pthread_create(thread, attr, fn, arg) !((*thread)=CreateThread(NULL, 0, &(fn), arg, 0, NULL))
@@ -71,7 +72,7 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(isolate_key != 0x7777);
 
 	// Second pass-- find data key
-	int thread_id;
+	int thread_id = 0;
 	for (pthread_key_t ii = isolate_key + 2; ii < coro_thread_key; ++ii) {
 		void* tls = pthread_getspecific(ii);
 		if (can_poke(tls) && *(void**)tls == isolate) {

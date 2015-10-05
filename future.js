@@ -2,10 +2,14 @@
 var Fiber = require('./fibers');
 var util = require('util');
 module.exports = Future;
-Function.prototype.future = function() {
+Function.prototype.future = function(detach) {
 	var fn = this;
 	var ret = function() {
-		return new FiberFuture(fn, this, arguments);
+		var future = new FiberFuture(fn, this, arguments);
+		if (detach) {
+			future.detach();
+		}
+		return future;
 	};
 	ret.toString = function() {
 		return '<<Future '+ fn+ '.future()>>';
@@ -280,26 +284,44 @@ Future.prototype = {
 			throw new Error('Future must resolve before value is ready');
 		} else if (this.error) {
 			// Link the stack traces up
-			var stack = {}, error = this.error instanceof Object ? this.error : new Error(this.error);
-			var longError = Object.create(error);
-			Error.captureStackTrace(stack, Future.prototype.get);
-			Object.defineProperty(longError, 'stack', {
-				get: function() {
-					var baseStack = error.stack;
-					if (baseStack) {
-						baseStack = baseStack.split('\n');
-						return [baseStack[0]]
-							.concat(stack.stack.split('\n').slice(1))
-							.concat('    - - - - -')
-							.concat(baseStack.slice(1))
-							.join('\n');
-					} else {
-						return stack.stack;
-					}
-				},
-				enumerable: true,
-			});
-			throw longError;
+			var error = this.error;
+			var localStack = {};
+			Error.captureStackTrace(localStack, Future.prototype.get);
+			var futureStack = Object.getOwnPropertyDescriptor(error, 'futureStack');
+			if (!futureStack) {
+				futureStack = Object.getOwnPropertyDescriptor(error, 'stack');
+				if (futureStack) {
+					Object.defineProperty(error, 'futureStack', futureStack);
+				}
+			}
+			if (futureStack && futureStack.get) {
+				Object.defineProperty(error, 'stack', {
+					get: function() {
+						var stack = futureStack.get.apply(error);
+						if (stack) {
+							stack = stack.split('\n');
+							return [stack[0]]
+								.concat(localStack.stack.split('\n').slice(1))
+								.concat('    - - - - -')
+								.concat(stack.slice(1))
+								.join('\n');
+						} else {
+							return localStack.stack;
+						}
+					},
+					set: function(stack) {
+						Object.defineProperty(error, 'stack', {
+							value: stack,
+							configurable: true,
+							enumerable: false,
+							writable: true,
+						});
+					},
+					configurable: true,
+					enumerable: false,
+				});
+			}
+			throw error;
 		} else {
 			return this.value;
 		}

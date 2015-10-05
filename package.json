@@ -1,6 +1,6 @@
 {
 	"name": "fibers",
-	"version": "1.0.5",
+	"version": "1.0.6",
 	"description": "Cooperative multi-tasking for Javascript",
 	"keywords": [
 		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
@@ -8,13 +8,14 @@
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
 	"scripts": {
-		"install": "node ./build.js",
-		"test": "node ./test.js"
+		"install": "node build.js || nodejs build.js",
+		"test": "node test.js || nodejs test.js"
 	},
 	"repository": {
 		"type": "git",
 		"url": "git://github.com/laverdet/node-fibers.git"
 	},
+	"license": "MIT",
 	"engines": {
 		"node": ">=0.5.2"
 	}
