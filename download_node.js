@@ -3,7 +3,7 @@ var path = require('path');
 
 module.exports = {
 	download: function(version, destination, callback) {	
-		var url = 'https://node.org/dist/v' + version + '/' 
+		var url = 'https://nodejs.org/dist/v' + version + '/' 
 			+ (process.platform === 'win32' ? '/win-x86/node.exe' : '/win-x64/node.exe');
 
 		console.log('\x1b[32m Starting to download node v ' + version + ' \x1b[0m');	
