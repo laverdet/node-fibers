@@ -2,7 +2,7 @@
 var cp = require('child_process'),
 	fs = require('fs'),
 	path = require('path'),
-	downloadiojs = require('./download_io.js');
+	downloadNode = require('./download_node.js');
 
 // Parse args
 var force = false, debug = false;
@@ -97,26 +97,26 @@ function afterBuild(deployPath) {
 * 												*
 * 												*
 ************************************************/
-// For new versions of iojs and/or electron, add new elements to this array.
-var electrons = [{target: '0.30.4', iojsversion: '1.6.3', disturl: 'https://atom.io/download/atom-shell', v8: '4.3'}];
+// For new versions of node and/or electron, add new elements to this array.
+var electrons = [{target: '0.33.6', nodeVersion: '4.1.1', disturl: 'https://atom.io/download/atom-shell', v8: '4.5'}];
 
 for (var i = 0; i < electrons.length; i++) {
 	processElectron(electrons[i]);
 }
 
 function processElectron(electron) {
-	var iojs = path.join(__dirname, 'iojs', electron.iojsversion + ' - ' + arch, 'iojs.exe');
+	var nodeExec = path.join(__dirname, 'node', electron.nodeVersion + ' - ' + arch, 'node.exe');
 	var nodegyp = path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + 'Library/Preference' : '/var/local'), "/npm/node_modules/pangyp/bin/node-gyp.js");
 	var args = [nodegyp, 'configure', 'build', '--target=' + electron.target, '--arch=' + arch, '--dist-url=' + electron.disturl];
 	var deployPath = platform + '-' + arch + '-v8-' + electron.v8;
 
 	try {
-		fs.statSync(iojs);
-		console.log('\x1b[32m iojs v ' + electron.iojsversion + ' allready exsists. Continuing to build \x1b[0m');
-		electronBuild(iojs, args, deployPath);
+		fs.statSync(nodeExec);
+		console.log('\x1b[32m node v ' + electron.nodeVersion + ' allready exsists. Continuing to build \x1b[0m');
+		electronBuild(nodeExec, args, deployPath);
 	} catch (error) {
-		fs.mkdirSync(path.dirname(iojs));
-		downloadiojs.download(electron.iojsversion, iojs, function(error, result) {
+		fs.mkdirSync(path.dirname(nodeExec));
+		downloadNode.download(electron.nodeVersion, nodeExec, function(error, result) {
 			if (result) {
 				electronBuild(result, args, deployPath);
 			} else {
@@ -126,9 +126,9 @@ function processElectron(electron) {
 	};
 }
 
-function electronBuild(iojs, args, deployPath) {
+function electronBuild(nodeExec, args, deployPath) {
 	cp.spawn(
-		iojs,
+		nodeExec,
 		args,
 		{stdio: [process.stdin, process.stdout, process.stderr]})
 	.on('exit', function(err) {
