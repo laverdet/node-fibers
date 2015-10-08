@@ -38,21 +38,27 @@ if (!force) {
 		cp.execFile(process.execPath, ['quick-test'], function(err, stdout, stderr) {
 			if (err || stdout !== 'pass' || stderr) {
 				console.log('Problem with the binary; manual build incoming');
-				build();
+				build(function(error, result) {
+					BuildElectron();
+				});
 			} else {
 				console.log('Binary is fine; exiting');
 			}
 		});
 	} catch (ex) {
 		// Stat failed
-		build();
+		build(function(error, result) {
+			BuildElectron();
+		});
 	}
 } else {
-	build();
+	build(function(error, result) {
+		BuildElectron();
+	});
 }
 
 // Build it
-function build() {
+function build(callback) {
 	cp.spawn(
 		process.platform === 'win32' ? 'node-gyp.cmd' : 'node-gyp',
 		['rebuild'].concat(args),
@@ -67,9 +73,15 @@ function build() {
 			} else {
 				console.error('Build failed');
 			}
+			
+			if (callback)
+				callback('Build Failed', null)
+
 			return process.exit(err);
 		}
 		afterBuild(modPath);
+		if (callback)
+			callback(null, true)
 	});
 }
 
@@ -93,18 +105,22 @@ function afterBuild(deployPath) {
 }
 
 
-/********* Build for Electron and io.js *********
+/************** Build for Electron **************
 * 												*
 * 												*
 ************************************************/
 // For new versions of node and/or electron, add new elements to this array.
 var electrons = [{target: '0.33.6', nodeVersion: '4.1.1', disturl: 'https://atom.io/download/atom-shell', v8: '4.5'}];
 
-for (var i = 0; i < electrons.length; i++) {
-	processElectron(electrons[i]);
-}
+function BuildElectron() {
+	var curIndex = 0;
 
-function processElectron(electron) {
+	for (var i = 0; i < electrons.length; i++) {
+		processElectron(electrons[i]);
+	}
+};
+
+function processElectron(electron, callback) {
 	var nodeExec = path.join(__dirname, 'node', electron.nodeVersion + ' - ' + arch, 'node.exe');
 	var nodegyp = path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + 'Library/Preference' : '/var/local'), "/npm/node_modules/pangyp/bin/node-gyp.js");
 	var args = [nodegyp, 'configure', 'build', '--target=' + electron.target, '--arch=' + arch, '--dist-url=' + electron.disturl, '--msvs_version=2013', '-release'];
