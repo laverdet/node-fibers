@@ -107,7 +107,7 @@ for (var i = 0; i < electrons.length; i++) {
 function processElectron(electron) {
 	var nodeExec = path.join(__dirname, 'node', electron.nodeVersion + ' - ' + arch, 'node.exe');
 	var nodegyp = path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + 'Library/Preference' : '/var/local'), "/npm/node_modules/pangyp/bin/node-gyp.js");
-	var args = [nodegyp, 'configure', 'build', '--target=' + electron.target, '--arch=' + arch, '--dist-url=' + electron.disturl];
+	var args = [nodegyp, 'configure', 'build', '--target=' + electron.target, '--arch=' + arch, '--dist-url=' + electron.disturl, '--msvs_version=2013', '-release'];
 	var deployPath = platform + '-' + arch + '-v8-' + electron.v8;
 
 	try {
