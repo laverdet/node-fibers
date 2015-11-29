@@ -436,7 +436,7 @@ function Future() {}
  * Wrap a node-style async function to return a future in place of using a callback.
  * 
  * fn - the function or object to wrap
- * array - indicates that this callback will return more than 1 argument after `err`. For example,
+ * multi - indicates that this callback will return more than 1 argument after `err`. For example,
  *         `child_process.exec()` returns [err, stdout, stderr]
  * suffix - appends a string to every method that was overridden, if you passed an object
  * 
