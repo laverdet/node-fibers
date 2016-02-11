@@ -62,10 +62,10 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	isolate->Enter();
 
 	// First pass-- find isolate thread key
-	for (pthread_key_t ii = coro_thread_key - 1; ii > 0; --ii) {
-		void* tls = pthread_getspecific(ii);
+	for (pthread_key_t ii = coro_thread_key; ii > 0; --ii) {
+		void* tls = pthread_getspecific(ii - 1);
 		if (tls == isolate) {
-			isolate_key = ii;
+			isolate_key = ii - 1;
 			break;
 		}
 	}
