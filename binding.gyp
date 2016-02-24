@@ -38,7 +38,21 @@
 						'ldflags': ['-pthread'],
 					}
 				],
-				['OS == "linux" or OS == "solaris" or OS == "sunos" or OS == "freebsd" or OS == "aix"', {'defines': ['CORO_UCONTEXT']}],
+				['OS == "linux"',
+					{
+						'variables': {
+							'USE_GLIBC': '<!(ldd --version 2>&1 | head -n 1 | grep -i "glibc" | wc -l)',
+						},
+						'conditions': [
+							['<(USE_GLIBC) == 1',
+								{'defines': ['CORO_UCONTEXT'],},
+								# no use glibc
+								{'defines': ['CORO_ASM'],}
+							],
+						],
+					},
+				],
+				['OS == "solaris" or OS == "sunos" or OS == "freebsd" or OS == "aix"', {'defines': ['CORO_UCONTEXT']}],
 				['OS == "mac"', {'defines': ['CORO_SJLJ']}],
 				['OS == "openbsd"', {'defines': ['CORO_ASM']}],
 				['target_arch == "arm"',
