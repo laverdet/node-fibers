@@ -534,6 +534,12 @@ Future.prototype.proxy = function(future) { ... }
  * future threw, future.wait() will throw.
  */
 Future.prototype.wait = function() { ... }
+
+/**
+ * Support for converting a Future to and from ES6 Promises.
+ */
+Future.fromPromise = function(promise) { ... }
+Future.prototype.promise = function() { ... }
 ```
 
 GARBAGE COLLECTION

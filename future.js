@@ -188,6 +188,19 @@ Future.wait = function wait(/* ... */) {
 	}
 };
 
+/**
+ * Return a Future that waits on an ES6 Promise.
+ */
+Future.fromPromise = function(promise) {
+	var future = new Future;
+	promise.then(function(val) {
+		future.return(val);
+	}, function(err) {
+		future.throw(err);
+	});
+	return future;
+};
+
 Future.prototype = {
 	/**
 	 * Return the value of this future. If the future hasn't resolved yet this will throw an error.
@@ -406,6 +419,22 @@ Future.prototype = {
 			}
 		});
 		return this;
+	},
+
+	/**
+	 * Returns an ES6 Promise
+	 */
+	promise: function() {
+		var that = this;
+		return new Promise(function(resolve, reject) {
+			that.resolve(function(err, val) {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(val);
+				}
+			});
+		});
 	},
 
 	/**
