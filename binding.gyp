@@ -38,7 +38,7 @@
 						'ldflags': ['-pthread'],
 					}
 				],
-				['OS == "linux" or OS == "solaris" or OS == "sunos" or OS == "freebsd"', {'defines': ['CORO_UCONTEXT']}],
+				['OS == "linux" or OS == "solaris" or OS == "sunos" or OS == "freebsd" or OS == "aix"', {'defines': ['CORO_UCONTEXT']}],
 				['OS == "mac"', {'defines': ['CORO_SJLJ']}],
 				['OS == "openbsd"', {'defines': ['CORO_ASM']}],
 				['target_arch == "arm"',
