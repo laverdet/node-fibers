@@ -58,17 +58,24 @@ function build() {
 		{stdio: [process.stdin, process.stdout, process.stderr]})
 	.on('exit', function(err) {
 		if (err) {
-			if (err === 127) {
-				console.error(
-					'node-gyp not found! Please upgrade your install of npm! You need at least 1.1.5 (I think) '+
-					'and preferably 1.1.30.'
-				);
-			} else {
-				console.error('Build failed');
-			}
+			console.error(
+				'node-gyp exited with code: '+ err+ '\n'+
+				'Please make sure you are using a supported platform and node version. If you would like\n'+
+				'to compile fibers on this machine please make sure you have setup your build environment--\n'+
+				'Windows + OS X instructions here:\n'+
+				'https://github.com/nodejs/node-gyp\n'+
+				'Ubuntu users please run: `sudo apt-get install g++`'
+			);
 			return process.exit(err);
 		}
 		afterBuild();
+	})
+	.on('error', function(err) {
+		console.error(
+			'node-gyp not found! Please ensure node-gyp is in your PATH.'
+		);
+		console.log(err.message);
+		process.exit(1);
 	});
 }
 
