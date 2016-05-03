@@ -6,7 +6,7 @@ INSTALLING
 
 ### via npm
 * `npm install fibers`
-* You're done!
+* You're done! (see "supported platforms" below if you run into errors)
 
 ### from source
 * `git clone git://github.com/laverdet/node-fibers.git`
@@ -24,26 +24,27 @@ hacking on node-fibers, it may be worthwhile to first do `node-gyp configure`
 and then for subsequent rebuilds you can just do `node-gyp build` which will
 be faster than a full `npm install` or `node-gyp rebuild`.
 
-### important!
-It's recommended that you use node 0.6.18 or higher with node-fibers. Using
-other versions may lead to instability during high loads.
+### meteor users please read this
+If you're trying to get meteor running and you ended up at this page you're
+probably doing something wrong. Please uninstall all versions of NodeJS and
+Meteor, then start over. See
+[meteor#5124](https://github.com/meteor/meteor/issues/5124) for more
+information.
 
-### other notes
-Unlike most NodeJS projects, node-fibers is a C++ project. Some extra work is
-required to compile node-fibers, but pretty much every platform is supported
-in some way. Binary distributions in 32 and 64-bit forms are provided in npm for
-Linux, OS X, and Windows (special thanks to
-[Jeroen Janssen](https://github.com/japj) for his work on fibers in Windows).
+### supported platforms
+If you are running NodeJS version 4.x, 5.x, or 6.x on Linux, OS X, or Windows
+(7 or later) then you should be able to install fibers from npm just fine. If
+you are running an older (or newer) version of node or some other operating
+system you will have to compile fibers on your system.
 
-Support for Solaris, FreeBSD, and OpenBSD is provided by compiling the extension
-on your system during install time via
-[node-gyp](https://github.com/TooTallNate/node-gyp). If your operating system
-isn't listed here you may have luck copying the build process for one of the
-other OS's, assuming you are running a POSIX-like OS.
+(special thanks to [Jeroen Janssen](https://github.com/japj) for his work on
+fibers in Windows)
 
-node 0.6.x is required to run this release of node-fibers. Older versions of
-node (0.4.x) are supported in older releases of node-fibers. See the 0.5.x
-branch of node-fibers for documentation.
+If you do end up needing to compile fibers first make sure you have node-gyp
+installed as a global dependency (`npm install -g node-gyp`), and that you have
+setup your build enviroment by following the instructions at
+[node-gyp](https://github.com/TooTallNate/node-gyp). Ubuntu-flavored Linux users
+may need to run `sudo apt-get install g++` as well.
 
 
 EXAMPLES
