@@ -451,7 +451,7 @@ class Fiber {
 				data[1] = &that;
 				that.this_fiber = Coroutine::create_fiber((void (*)(void*))RunFiber, data);
 				if (!that.this_fiber) {
-					delete data;
+					delete[] data;
 					THROW(Exception::RangeError, "Out of memory");
 				}
 				that.started = true;
