@@ -41,13 +41,12 @@
 				['OS == "linux"',
 					{
 						'variables': {
-							'USE_GLIBC': '<!(ldd --version 2>&1 | head -n 1 | grep -i "glibc" | wc -l)',
+							'USE_MUSL': '<!(ldd --version 2>&1 | head -n1 | grep "musl" | wc -l)',
 						},
 						'conditions': [
-							['<(USE_GLIBC) == 1',
-								{'defines': ['CORO_UCONTEXT'],},
-								# no use glibc
-								{'defines': ['CORO_ASM'],}
+							['<(USE_MUSL) == 1',
+								{'defines': ['CORO_ASM', 'USE_V8_SYMBOLS']},
+								{'defines': ['CORO_UCONTEXT']}
 							],
 						],
 					},
