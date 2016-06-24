@@ -54,7 +54,7 @@
 				['OS == "solaris" or OS == "sunos" or OS == "freebsd" or OS == "aix"', {'defines': ['CORO_UCONTEXT']}],
 				['OS == "mac"', {'defines': ['CORO_SJLJ']}],
 				['OS == "openbsd"', {'defines': ['CORO_ASM']}],
-				['target_arch == "arm"',
+				['target_arch == "arm" or target_arch == "arm64"',
 					{
 						# There's been problems getting real fibers working on arm
 						'defines': ['CORO_PTHREAD'],
