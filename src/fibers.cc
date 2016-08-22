@@ -604,9 +604,9 @@ class Fiber {
 				Isolate::Scope isolate_scope(that.isolate);
 				uni::HandleScope scope(that.isolate);
 
-				// Set the stack guard for this "thread"; allow 4k of padding past the JS limit for
+				// Set the stack guard for this "thread"; allow 6k of padding past the JS limit for
 				// native v8 code to run
-				uni::SetStackGuard(that.isolate, reinterpret_cast<char*>(that.this_fiber->bottom()) + 1024 * 4);
+				uni::SetStackGuard(that.isolate, reinterpret_cast<char*>(that.this_fiber->bottom()) + 1024 * 6);
 
 				TryCatch try_catch;
 				that.ClearWeak();
