@@ -21,6 +21,39 @@ using namespace v8;
 
 // Handle legacy V8 API
 namespace uni {
+#if V8_MAJOR_VERSION > 5 || (V8_MAJOR_VERSION == 5 && V8_MINOR_VERSION >= 2)
+	// Actually 5.2.244
+	template <void (*F)(void*), class P>
+	void WeakCallbackShim(const WeakCallbackInfo<P>& data) {
+		F(data.GetParameter());
+	}
+
+	template <void (*F)(void*), class T, typename P>
+	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
+		handle.SetWeak(val, WeakCallbackShim<F, P>, WeakCallbackType::kFinalizer);
+	}
+#elif V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 26)
+	template <void (*F)(void*), class T, typename P>
+	void WeakCallbackShim(const v8::WeakCallbackData<T, P>& data) {
+		F(data.GetParameter());
+	}
+
+	template <void (*F)(void*), class T, typename P>
+	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
+		handle.SetWeak(val, WeakCallbackShim<F>);
+	}
+#else
+	template <void (*F)(void*)>
+	void WeakCallbackShim(Persistent<Value> value, void* data) {
+		F(data);
+	}
+	template <void (*F)(void*), class T, typename P>
+	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
+		handle.MakeWeak(val, WeakCallbackShim<F>);
+	}
+#endif
+
+
 #if V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 26)
 	// Node v0.11.13+
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
@@ -40,16 +73,6 @@ namespace uni {
 	template <class T>
 	void Dispose(Isolate* isolate, Persistent<T>& handle) {
 		handle.Reset();
-	}
-
-	template <void (*F)(void*), class T, typename P>
-	void WeakCallbackShim(const v8::WeakCallbackData<T, P>& data) {
-		F(data.GetParameter());
-	}
-
-	template <void (*F)(void*), class T, typename P>
-	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
-		handle.SetWeak(val, WeakCallbackShim<F>);
 	}
 	template <class T>
 	void ClearWeak(Isolate* isolate, Persistent<T>& handle) {
@@ -163,14 +186,6 @@ namespace uni {
 		handle.Dispose();
 	}
 
-	template <void (*F)(void*)>
-	void WeakCallbackShim(Persistent<Value> value, void* data) {
-		F(data);
-	}
-	template <void (*F)(void*), class T, typename P>
-	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
-		handle.MakeWeak(val, WeakCallbackShim<F>);
-	}
 	template <class T>
 	void ClearWeak(Isolate* isolate, Persistent<T>& handle) {
 		handle.ClearWeak();
