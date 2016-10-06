@@ -648,7 +648,7 @@ class Fiber {
 
 			// The function returned (instead of yielding).
 			that.started = false;
-			that.this_fiber->finish(*that.entry_fiber);
+			that.this_fiber->finish(*that.entry_fiber, that.isolate);
 		}
 
 		/**

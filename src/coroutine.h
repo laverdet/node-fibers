@@ -81,7 +81,7 @@ class Coroutine {
 		 * of `next`. If you do not call this function, and instead just return from `entry` the
 		 * application will exit. This function may or may not actually return.
 		 */
-		void finish(Coroutine& next);
+		void finish(Coroutine& next, v8::Isolate* isolate);
 
 		/**
 		 * Returns address of the lowest usable byte in this Coroutine's stack.

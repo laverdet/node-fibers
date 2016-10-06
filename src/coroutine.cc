@@ -1,4 +1,5 @@
 #include "coroutine.h"
+#include "v8-version.h"
 #include <assert.h>
 #ifndef WINDOWS
 #include <pthread.h>
@@ -273,18 +274,23 @@ void Coroutine::run() {
 	}
 }
 
-void Coroutine::finish(Coroutine& next) {
+void Coroutine::finish(Coroutine& next, v8::Isolate* isolate) {
 	{
 		assert(&next != this);
 		assert(&current() == this);
 		if (fiber_pool.size() < pool_size) {
 			fiber_pool.push_back(this);
 		} else {
-			// We can mitigate v8's leakage by saving these thread locals. See v8 issue #3777
+#if V8_MAJOR_VERSION > 4 || (V8_MAJOR_VERSION == 4 && V8_MINOR_VERSION >= 10)
+			// Clean up isolate data
+			isolate->DiscardThreadSpecificMetadata();
+#else
+			// If not supported, then we can mitigate v8's leakage by saving these thread locals.
 			fls_data_pool.reserve(fls_data_pool.size() + 3);
 			fls_data_pool.push_back(pthread_getspecific(isolate_key));
 			fls_data_pool.push_back(pthread_getspecific(thread_id_key));
 			fls_data_pool.push_back(pthread_getspecific(thread_data_key));
+#endif
 			// Can't delete right now because we're currently on this stack!
 			assert(delete_me == NULL);
 			delete_me = this;
