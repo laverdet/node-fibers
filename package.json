@@ -1,6 +1,6 @@
 {
 	"name": "fibers",
-	"version": "1.0.13",
+	"version": "1.0.15",
 	"description": "Cooperative multi-tasking for Javascript",
 	"keywords": [
 		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
