@@ -7,8 +7,7 @@ var cp = require('child_process'),
 var force = false, debug = false;
 var
 	arch = process.arch,
-	platform = process.platform,
-	v8 = /[0-9]+\.[0-9]+/.exec(process.versions.v8)[0];
+	platform = process.platform;
 var args = process.argv.slice(2).filter(function(arg) {
 	if (arg === '-f') {
 		force = true;
@@ -29,7 +28,7 @@ if (!{ia32: true, x64: true, arm: true, arm64: true, ppc: true, ppc64: true, s39
 }
 
 // Test for pre-built library
-var modPath = platform+ '-'+ arch+ '-v8-'+ v8;
+var modPath = platform+ '-'+ arch+ '-'+ process.versions.modules;
 if (!force) {
 	try {
 		fs.statSync(path.join(__dirname, 'bin', modPath, 'fibers.node'));
@@ -98,4 +97,9 @@ function afterBuild() {
 	}
 	fs.renameSync(targetPath, installPath);
 	console.log('Installed in `'+ installPath+ '`');
+	if (process.versions.electron) {
+		process.nextTick(function() {
+			require('electron').app.quit();
+		});
+	}
 }
