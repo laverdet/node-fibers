@@ -63,7 +63,7 @@ function build() {
 				'would like to compile fibers on this machine please make sure you have setup your\n'+
 				'build environment--\n'+
 				'Windows + OS X instructions here: https://github.com/nodejs/node-gyp\n'+
-				'Ubuntu users please run: `sudo apt-get install g++`\n'+
+				'Ubuntu users please run: `sudo apt-get install g++ build-essential`\n'+
 				'Alpine users please run: `sudo apk add python make g++`'
 			);
 			return process.exit(err);
