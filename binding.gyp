@@ -52,7 +52,7 @@
 					},
 				],
 				['OS == "solaris" or OS == "sunos" or OS == "freebsd" or OS == "aix"', {'defines': ['CORO_UCONTEXT']}],
-				['OS == "mac"', {'defines': ['CORO_SJLJ']}],
+				['OS == "mac"', {'defines': ['CORO_ASM']}],
 				['OS == "openbsd"', {'defines': ['CORO_ASM']}],
 				['target_arch == "arm" or target_arch == "arm64"',
 					{
