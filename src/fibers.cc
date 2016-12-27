@@ -21,8 +21,9 @@ using namespace v8;
 
 // Handle legacy V8 API
 namespace uni {
-#if V8_MAJOR_VERSION > 5 || (V8_MAJOR_VERSION == 5 && V8_MINOR_VERSION >= 2)
+#if V8_AT_LEAST(5, 3)
 	// Actually 5.2.244
+	// ..or maybe actually 5.2.49
 	template <void (*F)(void*), class P>
 	void WeakCallbackShim(const WeakCallbackInfo<P>& data) {
 		F(data.GetParameter());
@@ -32,7 +33,7 @@ namespace uni {
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
 		handle.SetWeak(val, WeakCallbackShim<F, P>, WeakCallbackType::kFinalizer);
 	}
-#elif V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 26)
+#elif V8_AT_LEAST(3, 26)
 	template <void (*F)(void*), class T, typename P>
 	void WeakCallbackShim(const v8::WeakCallbackData<T, P>& data) {
 		F(data.GetParameter());
@@ -53,8 +54,63 @@ namespace uni {
 	}
 #endif
 
+#if V8_AT_LEAST(3, 28)
+	class TryCatch : public v8::TryCatch {
+		public: TryCatch(Isolate* isolate) : v8::TryCatch(isolate) {}
+	};
+#else
+	class TryCatch : public v8::TryCatch {
+		public: TryCatch(Isolate* isolate) : v8::TryCatch() {}
+	};
+#endif
 
-#if V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 26)
+#if V8_AT_LEAST(4, 4)
+	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string, NewStringType::kNormal).ToLocalChecked();
+	}
+
+	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string, NewStringType::kNormal).ToLocalChecked();
+	}
+#elif V8_AT_LEAST(3, 26)
+	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string);
+	}
+
+	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+		return String::NewFromOneByte(isolate, (const uint8_t*)string);
+	}
+#else
+	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+		return String::New(string);
+	}
+
+	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+		return String::NewSymbol(string);
+	}
+#endif
+
+#if V8_AT_LEAST(4, 4)
+	Handle<Object> NewInstance(Isolate* isolate, Local<Function> fn, int argc, Local<Value> argv[]) {
+		return fn->NewInstance(isolate->GetCurrentContext(), argc, argv).ToLocalChecked();
+	}
+#else
+	Handle<Object> NewInstance(Isolate* isolate, Local<Function> fn, int argc, Local<Value> argv[]) {
+		return fn->NewInstance(argc, argv).ToLocalChecked();
+	}
+#endif
+
+#if V8_AT_LEAST(4, 4)
+	Handle<Number> ToNumber(Local<Value> value) {
+		return value->ToNumber(Isolate::GetCurrent()->GetCurrentContext()).ToLocalChecked();
+	}
+#else
+	Handle<Number> ToNumber(Local<Value> value) {
+		return value->ToNumber();
+	}
+#endif
+
+#if V8_AT_LEAST(3, 26)
 	// Node v0.11.13+
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
 	typedef PropertyCallbackInfo<void> SetterCallbackInfo;
@@ -116,14 +172,6 @@ namespace uni {
 
 	Handle<Primitive> Undefined(Isolate* isolate) {
 		return v8::Undefined(isolate);
-	}
-
-	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
-		return String::NewFromOneByte(isolate, (const uint8_t*)string);
-	}
-
-	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
-		return String::NewFromOneByte(isolate, (const uint8_t*)string);
 	}
 
 	Handle<Boolean> NewBoolean(Isolate* isolate, bool value) {
@@ -225,14 +273,6 @@ namespace uni {
 		return v8::Undefined();
 	}
 
-	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
-		return String::New(string);
-	}
-
-	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
-		return String::NewSymbol(string);
-	}
-
 	Handle<Boolean> NewBoolean(Isolate* isolate, bool value) {
 		return Boolean::New(value);
 	}
@@ -269,12 +309,30 @@ namespace uni {
 	}
 #endif
 
-#if V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 29)
+#if V8_AT_LEAST(4, 4)
+	void SetAccessor(
+		Isolate* isolate, Local<Object> object, Local<String> name,
+		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
+		void (*setter)(Local<String> property, Local<Value> value, const SetterCallbackInfo&) = 0
+	) {
+		object->SetAccessor(isolate->GetCurrentContext(), name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter);
+	}
+#else
+	void SetAccessor(
+		Isolate* isolate, Local<Object> object, Local<String> name,
+		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
+		void (*setter)(Local<String> property, Local<Value> value, const SetterCallbackInfo&) = 0
+	) {
+		object->SetAccessor(name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter);
+	}
+#endif
+
+#if V8_AT_LEAST(3, 29)
 	// This was actually added in 3.29.67
 	void SetStackGuard(Isolate* isolate, void* guard) {
 		isolate->SetStackLimit(reinterpret_cast<uintptr_t>(guard));
 	}
-#elif V8_MAJOR_VERSION > 3 || (V8_MAJOR_VERSION == 3 && V8_MINOR_VERSION >= 26)
+#elif V8_AT_LEAST(3, 26)
 	void SetStackGuard(Isolate* isolate, void* guard) {
 		ResourceConstraints constraints;
 		constraints.set_stack_limit(reinterpret_cast<uint32_t*>(guard));
@@ -430,7 +488,7 @@ class Fiber {
 				THROW(Exception::TypeError, "Fiber expects a function");
 			} else if (!args.IsConstructCall()) {
 				Handle<Value> argv[1] = { args[0] };
-				return uni::Return(uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction()->NewInstance(1, argv), args);
+				return uni::Return(uni::NewInstance(Isolate::GetCurrent(), uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction(), 1, argv), args);
 			}
 
 			Handle<Function> fn = Handle<Function>::Cast(args[0]);
@@ -618,7 +676,7 @@ class Fiber {
 				// native v8 code to run
 				uni::SetStackGuard(that.isolate, reinterpret_cast<char*>(that.this_fiber->bottom()) + 1024 * 6);
 
-				TryCatch try_catch;
+				uni::TryCatch try_catch(that.isolate);
 				that.ClearWeak();
 				Handle<Context> v8_context = uni::Deref(that.isolate, that.v8_context);
 				v8_context->Enter();
@@ -738,7 +796,7 @@ class Fiber {
 		}
 
 		static void SetPoolSize(Local<String> property, Local<Value> value, const uni::SetterCallbackInfo& info) {
-			Coroutine::pool_size = value->ToNumber()->Value();
+			Coroutine::pool_size = uni::ToNumber(value)->Value();
 		}
 
 		/**
@@ -790,9 +848,9 @@ class Fiber {
 			// Fiber properties
 			Handle<Function> fn = tmpl->GetFunction();
 			fn->Set(sym_yield, yield);
-			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "current"), GetCurrent);
-			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "poolSize"), GetPoolSize, SetPoolSize);
-			fn->SetAccessor(uni::NewLatin1Symbol(isolate, "fibersCreated"), GetFibersCreated);
+			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "current"), GetCurrent);
+			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "poolSize"), GetPoolSize, SetPoolSize);
+			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "fibersCreated"), GetFibersCreated);
 
 			// Global Fiber
 			target->Set(uni::NewLatin1Symbol(isolate, "Fiber"), fn);
