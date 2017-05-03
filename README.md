@@ -22,7 +22,8 @@ here every time you build, or you can use the included build script. Either
 `npm install` or `node build -f` will do this for you. If you are going to be
 hacking on node-fibers, it may be worthwhile to first do `node-gyp configure`
 and then for subsequent rebuilds you can just do `node-gyp build` which will
-be faster than a full `npm install` or `node-gyp rebuild`.
+be faster than a full `npm install` or `node-gyp rebuild`. For windows, use
+rebuild.bat to build and rebuild fibers.
 
 ### meteor users please read this
 If you're trying to get meteor running and you ended up at this page you're
