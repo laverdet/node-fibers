@@ -5,7 +5,7 @@ INSTALLING
 ----------
 
 ### via npm
-* `npm install fibers`
+* `npm install fibers --save`
 * You're done! (see "supported platforms" below if you run into errors)
 
 ### from source
