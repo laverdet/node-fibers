@@ -40,6 +40,7 @@
 				],
 				['OS == "linux"',
 					{
+						'cflags_c': [ '-std=gnu11' ],
 						'variables': {
 							'USE_MUSL': '<!(ldd --version 2>&1 | head -n1 | grep "musl" | wc -l)',
 						},
