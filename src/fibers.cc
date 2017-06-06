@@ -115,7 +115,7 @@ namespace uni {
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
 	typedef PropertyCallbackInfo<void> SetterCallbackInfo;
 	typedef void FunctionType;
-	typedef FunctionCallbackInfo<v8::Value> Arguments;
+	typedef v8::FunctionCallbackInfo<v8::Value> Arguments;
 
 	class HandleScope {
 		v8::HandleScope scope;
