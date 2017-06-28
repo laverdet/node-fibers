@@ -1,8 +1,12 @@
 fibers(1) -- Fiber support for v8 and Node
 ==========================================
+[![npm version](https://img.shields.io/npm/v/fibers.svg)](https://www.npmjs.com/package/fibers) [![mit license](https://img.shields.io/npm/l/fibers.svg)](https://github.com/laverdet/node-fibers/blob/master/LICENSE) [![travis build](https://img.shields.io/travis/laverdet/node-fibers/master.svg)](https://travis-ci.org/laverdet/node-fibers) [![npm downloads](https://img.shields.io/npm/dw/fibers.svg)](https://www.npmjs.com/package/fibers)
+
+Fibers, sometimes called [coroutines](https://en.wikipedia.org/wiki/Coroutine), are a powerful tool which expose an API to jump between multiple call stacks from within a single thread. This can be useful to make code written for a synchronous library play nicely in an asynchronous environment.
 
 INSTALLING
 ----------
+[![NPM](https://nodei.co/npm/fibers.png)](https://www.npmjs.com/package/fibers)
 
 ### via npm
 * `npm install fibers`
