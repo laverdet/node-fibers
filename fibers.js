@@ -9,7 +9,8 @@ if (process.fiberLib) {
 	// Look for binary for this platform
 	var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ process.versions.modules, 'fibers');
 	try {
-		fs.statSync(modPath+ '.node');
+		// Pull in fibers implementation
+		process.fiberLib = module.exports = require(modPath).Fiber;
 	} catch (ex) {
 		// No binary!
 		console.error(
@@ -17,9 +18,7 @@ if (process.fiberLib) {
 			'`'+ modPath+ '.node` is missing.\n\n'+
 			'Try running this to fix the issue: '+ process.execPath+ ' '+ __dirname.replace(' ', '\\ ')+ '/build'
 		);
+		console.error(ex.stack || ex.message || ex);
 		throw new Error('Missing binary. See message above.');
 	}
-
-	// Pull in fibers implementation
-	process.fiberLib = module.exports = require(modPath).Fiber;
 }
