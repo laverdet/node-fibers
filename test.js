@@ -12,8 +12,8 @@ function runTest(test, cb) {
 	env.NODE_PATH = __dirname;
 	var proc = spawn(
 		process.execPath,
-		[path.join('test', test)],
-		{env: env}
+		[ '--force-async-hooks-checks', path.join('test', test) ],
+		{ env: env }
 	);
 	proc.stdout.setEncoding('utf8');
 	proc.stderr.setEncoding('utf8');
