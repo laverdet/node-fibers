@@ -10,11 +10,12 @@ function runTest(test, cb) {
 		env[ii] = process.env[ii];
 	}
 	env.NODE_PATH = __dirname;
-	var proc = spawn(
-		process.execPath,
-		[ '--force-async-hooks-checks', path.join('test', test) ],
-		{ env: env }
-	);
+	var args = [];
+	if (process.versions.modules >= 57) {
+		args.push('--force-async-hooks-checks');
+	}
+	args.push(path.join('test', test));
+	var proc = spawn(process.execPath, args, { env: env });
 	proc.stdout.setEncoding('utf8');
 	proc.stderr.setEncoding('utf8');
 

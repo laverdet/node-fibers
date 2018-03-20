@@ -1,5 +1,9 @@
 'use strict';
 // This test must be run with --force-async-hooks-checks
+if (process.versions.modules < 57) {
+	console.log('pass');
+	return;
+}
 const { AsyncResource } = require('async_hooks');
 const Fiber = require('fibers');
 
