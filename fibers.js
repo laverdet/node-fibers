@@ -47,17 +47,29 @@ function setupAsyncHacks(Fiber) {
 			throw new Error('Push/pop do not exist');
 		}
 
-		var kExecutionAsyncId = aw.constants.kExecutionAsyncId;
-		var kTriggerAsyncId = aw.constants.kTriggerAsyncId;
+		var kExecutionAsyncId;
+		if (aw.constants.kExecutionAsyncId === undefined) {
+			kExecutionAsyncId = aw.constants.kCurrentAsyncId;
+		} else {
+			kExecutionAsyncId = aw.constants.kExecutionAsyncId;
+		}
+		var kTriggerAsyncId;
+		if (aw.constants.kTriggerAsyncId === undefined) {
+			kTriggerAsyncId = aw.constants.kCurrentTriggerId;
+		} else {
+			kTriggerAsyncId = aw.constants.kTriggerAsyncId;
+		}
+
+		var asyncIds = aw.async_id_fields || aw.async_uid_fields;
 
 		function getAndClearStack() {
 			var ii = getAsyncIdStackSize();
 			var stack = new Array(ii);
 			for (; ii > 0; --ii) {
-				var asyncId = aw.async_id_fields[kExecutionAsyncId];
+				var asyncId = asyncIds[kExecutionAsyncId];
 				stack[ii - 1] = {
 					asyncId: asyncId,
-					triggerId: aw.async_id_fields[kTriggerAsyncId],
+					triggerId: asyncIds[kTriggerAsyncId],
 				};
 				aw.popAsyncIds(asyncId);
 			}
