@@ -36,7 +36,7 @@ Meteor, then start over. See
 information.
 
 ### supported platforms
-If you are running NodeJS version 4.x, 5.x, or 6.x on Linux, OS X, or Windows
+If you are running NodeJS version 4.x, 5.x, 6.x or 8.x on Linux, OS X, or Windows
 (7 or later) then you should be able to install fibers from npm just fine. If
 you are running an older (or newer) version of node or some other operating
 system you will have to compile fibers on your system.
