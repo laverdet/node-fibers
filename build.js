@@ -67,6 +67,7 @@ function build() {
 				'build environment--\n'+
 				'Windows + OS X instructions here: https://github.com/nodejs/node-gyp\n'+
 				'Ubuntu users please run: `sudo apt-get install g++ build-essential`\n'+
+				'RHEL users please run: `yum install gcc-c++` and `yum groupinstall \'Development Tools\'` \n'+
 				'Alpine users please run: `sudo apk add python make g++`'
 			);
 			return process.exit(err);
