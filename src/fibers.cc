@@ -332,13 +332,21 @@ namespace uni {
 	}
 #endif
 
-#if V8_AT_LEAST(4, 4)
+#if V8_AT_LEAST(6, 1)
 	void SetAccessor(
 		Isolate* isolate, Local<Object> object, Local<String> name,
 		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
 		void (*setter)(Local<String> property, Local<Value> value, const SetterCallbackInfo&) = 0
 	) {
 		object->SetAccessor(isolate->GetCurrentContext(), name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter).ToChecked();
+	}
+#elif V8_AT_LEAST(4, 4)
+	void SetAccessor(
+		Isolate* isolate, Local<Object> object, Local<String> name,
+		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
+		void (*setter)(Local<String> property, Local<Value> value, const SetterCallbackInfo&) = 0
+	) {
+		object->SetAccessor(isolate->GetCurrentContext(), name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter);
 	}
 #else
 	void SetAccessor(
