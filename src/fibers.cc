@@ -123,7 +123,7 @@ namespace uni {
 // Workaround for v8 issue #1180
 // http://code.google.com/p/v8/issues/detail?id=1180
 // NOTE: it's not clear if this is still necessary (perhaps Isolate::SetStackLimit could be used?)
-#if V8_AT_LEAST(6,1)
+#if V8_AT_LEAST(6, 1)
 	void fixStackLimit(Isolate* isolate, Handle<Context> context) {
 		Script::Compile(context, uni::NewLatin1String(isolate, "void 0;")).ToLocalChecked();
 	}
