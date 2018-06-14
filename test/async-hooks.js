@@ -13,9 +13,15 @@ class TestResource extends AsyncResource {
 	}
 
 	run(cb) {
-		this.emitBefore();
-		cb();
-		this.emitAfter();
+		// In the v8 API, only emitBefore() and emitAfter() are available
+		if (process.versions.modules < 59) {
+			this.emitBefore();
+			cb();
+			this.emitAfter();
+		} else {
+			// In v9 and higher, emitBefore() and emitAfter() are deperecated in favor of runInAsyncScope().
+			this.runInAsyncScope(cb);
+		}
 	}
 }
 

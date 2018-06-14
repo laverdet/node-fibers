@@ -11,7 +11,9 @@ function runTest(test, cb) {
 	}
 	env.NODE_PATH = __dirname;
 	var args = [];
-	if (process.versions.modules >= 57) {
+	if (process.versions.modules >= 57 && process.versions.modules < 59) {
+		// Node v8 requires forcing async hook checks. In Node v9 (>=59) and beyond,
+		// async hooks checks are on by default (and the param no longer exists).
 		args.push('--force-async-hooks-checks');
 	}
 	args.push(path.join('test', test));
