@@ -110,6 +110,29 @@ namespace uni {
 	}
 #endif
 
+#if V8_AT_LEAST(6, 1)
+	Local<Value> GetStackTrace(TryCatch* try_catch, Handle<Context> context) {
+		return try_catch->StackTrace(context).ToLocalChecked();
+	}
+#else
+	Local<Value> GetStackTrace(TryCatch* try_catch, Handle<Context> context) {
+		return try_catch->StackTrace();
+	}
+#endif
+
+// Workaround for v8 issue #1180
+// http://code.google.com/p/v8/issues/detail?id=1180
+// NOTE: it's not clear if this is still necessary (perhaps Isolate::SetStackLimit could be used?)
+#if V8_AT_LEAST(6, 1)
+	void fixStackLimit(Isolate* isolate, Handle<Context> context) {
+		Script::Compile(context, uni::NewLatin1String(isolate, "void 0;")).ToLocalChecked();
+	}
+#else
+	void fixStackLimit(Isolate* isolate, Handle<Context> context) {
+		Script::Compile(uni::NewLatin1String(isolate, "void 0;"));
+	}
+#endif
+
 #if V8_AT_LEAST(3, 26)
 	// Node v0.11.13+
 	typedef PropertyCallbackInfo<Value> GetterCallbackInfo;
@@ -309,7 +332,15 @@ namespace uni {
 	}
 #endif
 
-#if V8_AT_LEAST(4, 4)
+#if V8_AT_LEAST(6, 1)
+	void SetAccessor(
+		Isolate* isolate, Local<Object> object, Local<String> name,
+		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
+		void (*setter)(Local<String> property, Local<Value> value, const SetterCallbackInfo&) = 0
+	) {
+		object->SetAccessor(isolate->GetCurrentContext(), name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter).ToChecked();
+	}
+#elif V8_AT_LEAST(4, 4)
 	void SetAccessor(
 		Isolate* isolate, Local<Object> object, Local<String> name,
 		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
@@ -461,7 +492,7 @@ class Fiber {
 				if (that.yielded_exception) {
 					// If you throw an exception from a fiber that's being garbage collected there's no way
 					// to bubble that exception up to the application.
-					String::Utf8Value stack(uni::Deref(that.isolate, fatal_stack));
+					auto stack(uni::Deref(that.isolate, fatal_stack));
 					cerr <<
 						"An exception was thrown from a Fiber which was being garbage collected. This error "
 						"can not be gracefully recovered from. The only acceptable behavior is to terminate "
@@ -681,9 +712,7 @@ class Fiber {
 				Handle<Context> v8_context = uni::Deref(that.isolate, that.v8_context);
 				v8_context->Enter();
 
-				// Workaround for v8 issue #1180
-				// http://code.google.com/p/v8/issues/detail?id=1180
-				Script::Compile(uni::NewLatin1String(that.isolate, "void 0;"));
+				uni::fixStackLimit(that.isolate, v8_context);
 
 				Handle<Value> yielded;
 				if (args->Length()) {
@@ -698,7 +727,7 @@ class Fiber {
 					that.yielded_exception = true;
 					if (that.zombie && !that.resetting && !uni::Deref(that.isolate, that.yielded)->StrictEquals(uni::Deref(that.isolate, that.zombie_exception))) {
 						// Throwing an exception from a garbage sweep
-						uni::Reset(that.isolate, fatal_stack, try_catch.StackTrace());
+						uni::Reset(that.isolate, fatal_stack, uni::GetStackTrace(&try_catch, v8_context));
 					}
 				} else {
 					uni::Reset(that.isolate, that.yielded, yielded);
