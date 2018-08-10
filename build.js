@@ -26,9 +26,13 @@ if (!{ia32: true, x64: true, arm: true, arm64: true, ppc: true, ppc64: true, s39
 	console.error('Unsupported (?) architecture: `'+ arch+ '`');
 	process.exit(1);
 }
+if (platform === 'linux') {
+	// See USE_MUSL in binding.gyp
+	var libCFamily = parseInt(cp.execSync('ldd --version 2>&1 | head -n1 | grep "musl" | wc -l')) ? 'musl' : 'glibc';
+}
 
 // Test for pre-built library
-var modPath = platform+ '-'+ arch+ '-'+ process.versions.modules;
+var modPath = platform+ '-'+ arch+ '-'+ process.versions.modules+ ((platform === 'linux') ? '-'+ libCFamily : '');
 if (!force) {
 	try {
 		fs.statSync(path.join(__dirname, 'bin', modPath, 'fibers.node'));
