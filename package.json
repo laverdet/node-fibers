@@ -1,6 +1,6 @@
 {
 	"name": "fibers",
-	"version": "3.0.0",
+	"version": "3.1.0",
 	"description": "Cooperative multi-tasking for Javascript",
 	"keywords": [
 		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
@@ -17,6 +17,9 @@
 	},
 	"license": "MIT",
 	"engines": {
-		"node": ">=0.5.2"
+		"node": ">=8.0.0"
+	},
+	"dependencies": {
+		"detect-libc": "^1.0.3"
 	}
 }

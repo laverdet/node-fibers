@@ -1,13 +1,14 @@
 if (process.fiberLib) {
 	module.exports = process.fiberLib;
 } else {
-	var fs = require('fs'), path = require('path');
+	var fs = require('fs'), path = require('path'), detectLibc = require('detect-libc');
 
 	// Seed random numbers [gh-82]
 	Math.random();
 
 	// Look for binary for this platform
-	var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ process.versions.modules, 'fibers');
+	var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ process.versions.modules+
+		((process.platform === 'linux') ? '-'+ detectLibc.family : ''), 'fibers');
 	try {
 		// Pull in fibers implementation
 		process.fiberLib = module.exports = require(modPath).Fiber;
