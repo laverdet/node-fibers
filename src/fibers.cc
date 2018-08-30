@@ -393,7 +393,6 @@ class Fiber {
 
 		Isolate* isolate;
 		Persistent<Object> handle;
-		Persistent<Function> cb;
 		Persistent<Context> v8_context;
 		Persistent<Value> zombie_exception;
 		Persistent<Value> yielded;
@@ -407,7 +406,7 @@ class Fiber {
 
 		static Fiber& Unwrap(Handle<Object> handle) {
 			assert(!handle.IsEmpty());
-			assert(handle->InternalFieldCount() == 1);
+			assert(handle->InternalFieldCount() == 2);
 			return *static_cast<Fiber*>(uni::GetInternalPointer(handle, 0));
 		}
 
@@ -418,7 +417,7 @@ class Fiber {
 			zombie(false),
 			resetting(false) {
 			uni::Reset(isolate, this->handle, handle);
-			uni::Reset(isolate, this->cb, cb);
+			handle->SetInternalField(1, cb);
 			uni::Reset(isolate, this->v8_context, v8_context);
 
 			MakeWeak();
@@ -428,7 +427,6 @@ class Fiber {
 		virtual ~Fiber() {
 			assert(!this->started);
 			uni::Dispose(isolate, handle);
-			uni::Dispose(isolate, cb);
 			uni::Dispose(isolate, v8_context);
 		}
 
@@ -715,11 +713,12 @@ class Fiber {
 				uni::fixStackLimit(that.isolate, v8_context);
 
 				Handle<Value> yielded;
+				Local<Function> cb = uni::Deref(that.isolate, that.handle)->GetInternalField(1).As<Function>();
 				if (args->Length()) {
 					Handle<Value> argv[1] = { (*args)[0] };
-					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 1, argv);
+					yielded = cb->Call(v8_context->Global(), 1, argv);
 				} else {
-					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 0, NULL);
+					yielded = cb->Call(v8_context->Global(), 0, NULL);
 				}
 
 				if (try_catch.HasCaught()) {
@@ -802,7 +801,7 @@ class Fiber {
 		 * Getters for `started`, and `current`.
 		 */
 		static uni::FunctionType GetStarted(Local<String> property, const uni::GetterCallbackInfo& info) {
-			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 1) {
+			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 2) {
 				return uni::Return(uni::Undefined(Isolate::GetCurrent()), info);
 			}
 			Fiber& that = Unwrap(info.This());
@@ -857,7 +856,7 @@ class Fiber {
 			// Guard which only allows these methods to be called on a fiber; prevents
 			// `fiber.run.call({})` from seg faulting.
 			Handle<Signature> sig = uni::NewSignature(isolate, tmpl);
-			tmpl->InstanceTemplate()->SetInternalFieldCount(1);
+			tmpl->InstanceTemplate()->SetInternalFieldCount(2);
 
 			// Fiber.prototype
 			Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
