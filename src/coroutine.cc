@@ -171,8 +171,8 @@ void Coroutine::trampoline(void* that) {
 #endif
 	if (!fls_data_pool.empty()) {
 		pthread_setspecific(thread_data_key, fls_data_pool.back());
-		pthread_setspecific(thread_id_key, fls_data_pool.at(fls_data_pool.size() - 2));
-		pthread_setspecific(isolate_key, fls_data_pool.at(fls_data_pool.size() - 3));
+		pthread_setspecific(thread_id_key, fls_data_pool[fls_data_pool.size() - 2]);
+		pthread_setspecific(isolate_key, fls_data_pool[fls_data_pool.size() - 3]);
 		fls_data_pool.resize(fls_data_pool.size() - 3);
 	}
 	while (true) {
