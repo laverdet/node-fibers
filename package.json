@@ -17,7 +17,7 @@
 	},
 	"license": "MIT",
 	"engines": {
-		"node": ">=8.0.0"
+		"node": ">=6.0.0"
 	},
 	"dependencies": {
 		"detect-libc": "^1.0.3"
