@@ -650,7 +650,11 @@ coro_stack_alloc (struct coro_stack *stack, unsigned int size)
 
   #if CORO_MMAP
     /* mmap supposedly does allocate-on-write for us */
+#ifdef __OpenBSD__
+    base = mmap (0, ssze, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+#else
     base = mmap (0, ssze, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
 
     if (base == (void *)-1)
       {
