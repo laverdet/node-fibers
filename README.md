@@ -39,11 +39,12 @@ Meteor, then start over. See
 information.
 
 ### supported platforms
-If you are running nodejs version 8.x or 10.x on Linux, OS X, or Windows (7 or later) then you
-should be able to install fibers from npm just fine. If you are running nodejs v6.x then you will
-need to use `npm install fibers@2`. For nodejs v4.x you can use `npm install fibers@1`. If you are
-running an older (or newer) version of node or some other operating system you will have to compile
-fibers on your system.
+If you are running nodejs version 10.x or 12.x on Linux, OS X, or Windows (7 or later) then you
+should be able to install fibers from npm just fine. If you are running nodejs v8.x then you will
+need to use `npm install fibers@3`. If you are running nodejs v6.x then you will need to use `npm
+install fibers@2`. For nodejs v4.x you can use `npm install fibers@1`. If you are running an older
+(or newer) version of node or some other operating system you will have to compile fibers on your
+system.
 
 (special thanks to [Jeroen Janssen](https://github.com/japj) for his work on fibers in Windows)
 
