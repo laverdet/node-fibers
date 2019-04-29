@@ -96,9 +96,9 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 
 	// Second pass-- find data key
 	int thread_id = 0;
-	for (pthread_key_t ii = isolate_key + 2; ii < coro_thread_key; ++ii) {
+	for (pthread_key_t ii = isolate_key + 1; ii < coro_thread_key; ++ii) {
 		void* tls = pthread_getspecific(ii);
-		if (can_poke(tls) && *(void**)tls == isolate) {
+		if (can_poke(tls) && tls > (void*)0x1000 && *(void**)tls == isolate) {
 			// First member of per-thread data is the isolate
 			thread_data_key = ii;
 			// Second member is the thread id
@@ -109,7 +109,7 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(thread_data_key != 0x7777);
 
 	// Third pass-- find thread id key
-	for (pthread_key_t ii = isolate_key + 1; ii < thread_data_key; ++ii) {
+	for (pthread_key_t ii = isolate_key + 1; ii < coro_thread_key; ++ii) {
 		int tls = static_cast<int>(reinterpret_cast<intptr_t>(pthread_getspecific(ii)));
 		if (tls == thread_id) {
 			thread_id_key = ii;

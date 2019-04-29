@@ -65,11 +65,11 @@ namespace uni {
 #endif
 
 #if V8_AT_LEAST(4, 4)
-	Handle<String> NewLatin1String(Isolate* isolate, const char* string) {
+	Local<String> NewLatin1String(Isolate* isolate, const char* string) {
 		return String::NewFromOneByte(isolate, (const uint8_t*)string, NewStringType::kNormal).ToLocalChecked();
 	}
 
-	Handle<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
+	Local<String> NewLatin1Symbol(Isolate* isolate, const char* string) {
 		return String::NewFromOneByte(isolate, (const uint8_t*)string, NewStringType::kNormal).ToLocalChecked();
 	}
 #elif V8_AT_LEAST(3, 26)
@@ -91,17 +91,38 @@ namespace uni {
 #endif
 
 #if V8_AT_LEAST(4, 4)
-	Handle<Object> NewInstance(Isolate* isolate, Local<Function> fn, int argc, Local<Value> argv[]) {
+	Local<Function> GetFunction(Local<FunctionTemplate> tmpl) {
+		return tmpl->GetFunction(Isolate::GetCurrent()->GetCurrentContext()).ToLocalChecked();
+	}
+
+	Local<Value> Call(Local<Function> fn, Local<Object> recv, int argc, Local<Value> argv[]) {
+		Local<Value> result;
+		if (fn->Call(Isolate::GetCurrent()->GetCurrentContext(), recv, argc, argv).ToLocal(&result)) {
+			return result;
+		} else {
+			return {};
+		}
+	}
+
+	Local<Object> NewInstance(Isolate* isolate, Local<Function> fn, int argc, Local<Value> argv[]) {
 		return fn->NewInstance(isolate->GetCurrentContext(), argc, argv).ToLocalChecked();
 	}
 #else
+	Local<Function> GetFunction(Local<FunctionTemplate> tmpl) {
+		return tmpl->GetFunction();
+	}
+
+	Local<Value> Call(Local<Function> fn, Local<Object> recv, int argc, Local<Value> argv[]) {
+		return fn->Call(recv, argc, argv);
+	}
+
 	Handle<Object> NewInstance(Isolate* isolate, Local<Function> fn, int argc, Local<Value> argv[]) {
 		return fn->NewInstance(argc, argv).ToLocalChecked();
 	}
 #endif
 
 #if V8_AT_LEAST(4, 4)
-	Handle<Number> ToNumber(Local<Value> value) {
+	Local<Number> ToNumber(Local<Value> value) {
 		return value->ToNumber(Isolate::GetCurrent()->GetCurrentContext()).ToLocalChecked();
 	}
 #else
@@ -111,7 +132,7 @@ namespace uni {
 #endif
 
 #if V8_AT_LEAST(6, 1)
-	Local<Value> GetStackTrace(TryCatch* try_catch, Handle<Context> context) {
+	Local<Value> GetStackTrace(TryCatch* try_catch, Local<Context> context) {
 		return try_catch->StackTrace(context).ToLocalChecked();
 	}
 #else
@@ -124,7 +145,7 @@ namespace uni {
 // http://code.google.com/p/v8/issues/detail?id=1180
 // NOTE: it's not clear if this is still necessary (perhaps Isolate::SetStackLimit could be used?)
 #if V8_AT_LEAST(6, 1)
-	void fixStackLimit(Isolate* isolate, Handle<Context> context) {
+	void fixStackLimit(Isolate* isolate, Local<Context> context) {
 		Script::Compile(context, uni::NewLatin1String(isolate, "void 0;")).ToLocalChecked();
 	}
 #else
@@ -146,7 +167,7 @@ namespace uni {
 	};
 
 	template <class T>
-	void Reset(Isolate* isolate, Persistent<T>& persistent, Handle<T> handle) {
+	void Reset(Isolate* isolate, Persistent<T>& persistent, Local<T> handle) {
 		persistent.Reset(isolate, handle);
 	}
 	template <class T>
@@ -159,25 +180,25 @@ namespace uni {
 	}
 
 	template <class T>
-	void SetInternalPointer(Handle<T> handle, int index, void* val) {
+	void SetInternalPointer(Local<T> handle, int index, void* val) {
 		handle->SetAlignedPointerInInternalField(index, val);
 	}
 	template <class T>
-	void* GetInternalPointer(Handle<T> handle, int index) {
+	void* GetInternalPointer(Local<T> handle, int index) {
 		return handle->GetAlignedPointerFromInternalField(index);
 	}
 
 	template <class T>
-	Handle<T> Deref(Isolate* isolate, Persistent<T>& handle) {
+	Local<T> Deref(Isolate* isolate, Persistent<T>& handle) {
 		return Local<T>::New(isolate, handle);
 	}
 
 	template <class T>
-	void Return(Handle<T> handle, const Arguments& args) {
+	void Return(Local<T> handle, const Arguments& args) {
 		args.GetReturnValue().Set(handle);
 	}
 	template <class T>
-	void Return(Handle<T> handle, GetterCallbackInfo info) {
+	void Return(Local<T> handle, GetterCallbackInfo info) {
 		info.GetReturnValue().Set(handle);
 	}
 	template <class T>
@@ -185,39 +206,39 @@ namespace uni {
 		info.GetReturnValue().Set(handle);
 	}
 
-	Handle<Value> ThrowException(Isolate* isolate, Handle<Value> exception) {
+	Local<Value> ThrowException(Isolate* isolate, Local<Value> exception) {
 		return isolate->ThrowException(exception);
 	}
 
-	Handle<Context> GetCurrentContext(Isolate* isolate) {
+	Local<Context> GetCurrentContext(Isolate* isolate) {
 		return isolate->GetCurrentContext();
 	}
 
-	Handle<Primitive> Undefined(Isolate* isolate) {
+	Local<Primitive> Undefined(Isolate* isolate) {
 		return v8::Undefined(isolate);
 	}
 
-	Handle<Boolean> NewBoolean(Isolate* isolate, bool value) {
+	Local<Boolean> NewBoolean(Isolate* isolate, bool value) {
 		return Boolean::New(isolate, value);
 	}
 
-	Handle<Number> NewNumber(Isolate* isolate, double value) {
+	Local<Number> NewNumber(Isolate* isolate, double value) {
 		return Number::New(isolate, value);
 	}
 
-	Handle<FunctionTemplate> NewFunctionTemplate(
+	Local<FunctionTemplate> NewFunctionTemplate(
 		Isolate* isolate,
 		FunctionCallback callback,
-		Handle<Value> data = Handle<Value>(),
-		Handle<Signature> signature = Handle<Signature>(),
+		Local<Value> data = Local<Value>(),
+		Local<Signature> signature = Local<Signature>(),
 		int length = 0
 	) {
 		return FunctionTemplate::New(isolate, callback, data, signature, length);
 	}
 
-	Handle<Signature> NewSignature(
+	Local<Signature> NewSignature(
 		Isolate* isolate,
-		Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>()
+		Local<FunctionTemplate> receiver = Local<FunctionTemplate>()
 	) {
 		return Signature::New(isolate, receiver);
 	}
@@ -405,13 +426,13 @@ class Fiber {
 		bool zombie;
 		bool resetting;
 
-		static Fiber& Unwrap(Handle<Object> handle) {
+		static Fiber& Unwrap(Local<Object> handle) {
 			assert(!handle.IsEmpty());
 			assert(handle->InternalFieldCount() == 1);
 			return *static_cast<Fiber*>(uni::GetInternalPointer(handle, 0));
 		}
 
-		Fiber(Handle<Object> handle, Handle<Function> cb, Handle<Context> v8_context) :
+		Fiber(Local<Object> handle, Local<Function> cb, Local<Context> v8_context) :
 			isolate(Isolate::GetCurrent()),
 			started(false),
 			yielding(false),
@@ -455,7 +476,10 @@ class Fiber {
 		 */
 		static void WeakCallback(void* data) {
 			Fiber& that = *static_cast<Fiber*>(data);
+#if !V8_AT_LEAST(7, 4)
+			// Deprecated in 0781f42b6
 			assert(that.handle.IsNearDeath());
+#endif
 			assert(current != &that);
 
 			// We'll unwind running fibers later... doing it from the garbage collector is bad news.
@@ -518,11 +542,11 @@ class Fiber {
 			} else if (!args[0]->IsFunction()) {
 				THROW(Exception::TypeError, "Fiber expects a function");
 			} else if (!args.IsConstructCall()) {
-				Handle<Value> argv[1] = { args[0] };
-				return uni::Return(uni::NewInstance(Isolate::GetCurrent(), uni::Deref(Isolate::GetCurrent(), tmpl)->GetFunction(), 1, argv), args);
+				Local<Value> argv[1] = { args[0] };
+				return uni::Return(uni::NewInstance(Isolate::GetCurrent(), uni::GetFunction(uni::Deref(Isolate::GetCurrent(), tmpl)), 1, argv), args);
 			}
 
-			Handle<Function> fn = Handle<Function>::Cast(args[0]);
+			Local<Function> fn = Local<Function>::Cast(args[0]);
 			new Fiber(args.This(), fn, uni::GetCurrentContext(Isolate::GetCurrent()));
 			return uni::Return(args.This(), args);
 		}
@@ -610,7 +634,7 @@ class Fiber {
 			that.resetting = false;
 			that.MakeWeak();
 
-			Handle<Value> val = uni::Deref(that.isolate, that.yielded);
+			Local<Value> val = uni::Deref(that.isolate, that.yielded);
 			uni::Dispose(that.isolate, that.yielded);
 			if (that.yielded_exception) {
 				return uni::Return(uni::ThrowException(that.isolate, val), args);
@@ -632,7 +656,7 @@ class Fiber {
 			zombie = true;
 
 			// Setup an exception which will be thrown and rethrown from Fiber::Yield()
-			Handle<Value> zombie_exception = Exception::Error(uni::NewLatin1String(isolate, "This Fiber is a zombie"));
+			Local<Value> zombie_exception = Exception::Error(uni::NewLatin1String(isolate, "This Fiber is a zombie"));
 			uni::Reset(isolate, this->zombie_exception, zombie_exception);
 			uni::Reset(isolate, yielded, zombie_exception);
 			yielded_exception = true;
@@ -677,8 +701,8 @@ class Fiber {
 		/**
 		 * Grabs and resets this fiber's yielded value.
 		 */
-		Handle<Value> ReturnYielded() {
-			Handle<Value> val = uni::Deref(isolate, yielded);
+		Local<Value> ReturnYielded() {
+			Local<Value> val = uni::Deref(isolate, yielded);
 			uni::Dispose(isolate, yielded);
 			if (yielded_exception) {
 				return uni::ThrowException(isolate, val);
@@ -709,17 +733,17 @@ class Fiber {
 
 				uni::TryCatch try_catch(that.isolate);
 				that.ClearWeak();
-				Handle<Context> v8_context = uni::Deref(that.isolate, that.v8_context);
+				Local<Context> v8_context = uni::Deref(that.isolate, that.v8_context);
 				v8_context->Enter();
 
 				uni::fixStackLimit(that.isolate, v8_context);
 
-				Handle<Value> yielded;
+				Local<Value> yielded;
 				if (args->Length()) {
-					Handle<Value> argv[1] = { (*args)[0] };
-					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 1, argv);
+					Local<Value> argv[1] = { (*args)[0] };
+					yielded = uni::Call(uni::Deref(that.isolate, that.cb), v8_context->Global(), 1, argv);
 				} else {
-					yielded = uni::Deref(that.isolate, that.cb)->Call(v8_context->Global(), 0, NULL);
+					yielded = uni::Call(uni::Deref(that.isolate, that.cb), v8_context->Global(), 0, NULL);
 				}
 
 				if (try_catch.HasCaught()) {
@@ -839,7 +863,7 @@ class Fiber {
 		/**
 		 * Initialize the Fiber library.
 		 */
-		static void Init(Handle<Object> target) {
+		static void Init(Local<Object> target) {
 			// Use a locker which won't get destroyed when this library gets unloaded. This is a hack
 			// to prevent v8 from trying to clean up this "thread" while the whole application is
 			// shutting down. TODO: There's likely a better way to accomplish this, but since the
@@ -850,32 +874,32 @@ class Fiber {
 			current = NULL;
 
 			// Fiber constructor
-			Handle<FunctionTemplate> tmpl = uni::NewFunctionTemplate(isolate, New);
+			Local<FunctionTemplate> tmpl = uni::NewFunctionTemplate(isolate, New);
 			uni::Reset(isolate, Fiber::tmpl, tmpl);
 			tmpl->SetClassName(uni::NewLatin1Symbol(isolate, "Fiber"));
 
 			// Guard which only allows these methods to be called on a fiber; prevents
 			// `fiber.run.call({})` from seg faulting.
-			Handle<Signature> sig = uni::NewSignature(isolate, tmpl);
+			Local<Signature> sig = uni::NewSignature(isolate, tmpl);
 			tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 
 			// Fiber.prototype
-			Handle<ObjectTemplate> proto = tmpl->PrototypeTemplate();
+			Local<ObjectTemplate> proto = tmpl->PrototypeTemplate();
 			proto->Set(uni::NewLatin1Symbol(isolate, "reset"),
-				uni::NewFunctionTemplate(isolate, Reset, Handle<Value>(), sig));
+				uni::NewFunctionTemplate(isolate, Reset, Local<Value>(), sig));
 			proto->Set(uni::NewLatin1Symbol(isolate, "run"),
-				uni::NewFunctionTemplate(isolate, Run, Handle<Value>(), sig));
+				uni::NewFunctionTemplate(isolate, Run, Local<Value>(), sig));
 			proto->Set(uni::NewLatin1Symbol(isolate, "throwInto"),
-				uni::NewFunctionTemplate(isolate, ThrowInto, Handle<Value>(), sig));
+				uni::NewFunctionTemplate(isolate, ThrowInto, Local<Value>(), sig));
 			proto->SetAccessor(uni::NewLatin1Symbol(isolate, "started"), GetStarted);
 
 			// Global yield() function
-			Handle<Function> yield = uni::NewFunctionTemplate(isolate, Yield_)->GetFunction();
-			Handle<String> sym_yield = uni::NewLatin1Symbol(isolate, "yield");
+			Local<Function> yield = uni::GetFunction(uni::NewFunctionTemplate(isolate, Yield_));
+			Local<String> sym_yield = uni::NewLatin1Symbol(isolate, "yield");
 			target->Set(sym_yield, yield);
 
 			// Fiber properties
-			Handle<Function> fn = tmpl->GetFunction();
+			Local<Function> fn = uni::GetFunction(tmpl);
 			fn->Set(sym_yield, yield);
 			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "current"), GetCurrent);
 			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "poolSize"), GetPoolSize, SetPoolSize);
@@ -898,7 +922,7 @@ bool did_init = false;
 #if !NODE_VERSION_AT_LEAST(0,10,0)
 extern "C"
 #endif
-void init(Handle<Object> target) {
+void init(Local<Object> target) {
 	Isolate* isolate = Isolate::GetCurrent();
 	if (did_init || !target->Get(uni::NewLatin1Symbol(isolate, "Fiber"))->IsUndefined()) {
 		// Oh god. Node will call init() twice even though the library was loaded only once. See Node
