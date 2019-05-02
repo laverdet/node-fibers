@@ -148,7 +148,6 @@ void Coroutine::init(v8::Isolate* isolate) {
 	isolate_key = v8::internal::Isolate::isolate_key_;
 	thread_data_key = v8::internal::Isolate::per_isolate_thread_data_key_;
 	thread_id_key = v8::internal::Isolate::thread_id_key_;
-#endif
 #else
 	pthread_t thread;
 	pthread_create(&thread, NULL, find_thread_id_key, isolate);
