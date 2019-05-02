@@ -46,7 +46,7 @@
 						},
 						'conditions': [
 							['<(USE_MUSL) == 1',
-								{'defines': ['CORO_ASM', 'USE_V8_SYMBOLS']},
+								{'defines': ['CORO_ASM', '__MUSL__']},
 								{'defines': ['CORO_UCONTEXT']}
 							],
 						],

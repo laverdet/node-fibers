@@ -45,13 +45,15 @@ static bool can_poke(void* addr) {
 	}
 	return true;
 #else
-	// TODO: Check pointer on other OS's? Windows is the only case I've seen so far that has
-	// spooky gaps in the TLS key space
-	return true;
+	// TODO?
+	return addr > (void*)0x1000;
 #endif
 }
 
 #ifdef USE_V8_SYMBOLS
+// ** This no longer works as of v8 7.3.262; `thread_id_key_` moved to a static variable inside a
+// function in an anonymous namespace.
+
 // Some distributions of node, most notably Ubuntu, strip the v8 internal symbols and so we don't
 // have access to this stuff. In most cases we will use the more complicated `find_thread_id_key`
 // below, since it tends to work on more platforms.
@@ -85,7 +87,12 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	isolate->Enter();
 
 	// First pass-- find isolate thread key
+#ifdef __MUSL__
+	// 128 is default max key in musl
+	for (pthread_key_t ii = 1; ii < 128; ++ii) {
+#else
 	for (pthread_key_t ii = coro_thread_key; ii > 0; --ii) {
+#endif
 		void* tls = pthread_getspecific(ii - 1);
 		if (tls == isolate) {
 			isolate_key = ii - 1;
@@ -96,9 +103,13 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 
 	// Second pass-- find data key
 	int thread_id = 0;
+#ifdef __MUSL__
+	for (pthread_key_t ii = 0; ii < 128; ++ii) {
+#else
 	for (pthread_key_t ii = isolate_key + 1; ii < coro_thread_key; ++ii) {
+#endif
 		void* tls = pthread_getspecific(ii);
-		if (can_poke(tls) && tls > (void*)0x1000 && *(void**)tls == isolate) {
+		if (can_poke(tls) && *(void**)tls == isolate) {
 			// First member of per-thread data is the isolate
 			thread_data_key = ii;
 			// Second member is the thread id
@@ -109,7 +120,11 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(thread_data_key != 0x7777);
 
 	// Third pass-- find thread id key
+#ifdef __MUSL__
+	for (pthread_key_t ii = 0; ii < 128; ++ii) {
+#else
 	for (pthread_key_t ii = isolate_key + 1; ii < coro_thread_key; ++ii) {
+#endif
 		int tls = static_cast<int>(reinterpret_cast<intptr_t>(pthread_getspecific(ii)));
 		if (tls == thread_id) {
 			thread_id_key = ii;
@@ -133,6 +148,7 @@ void Coroutine::init(v8::Isolate* isolate) {
 	isolate_key = v8::internal::Isolate::isolate_key_;
 	thread_data_key = v8::internal::Isolate::per_isolate_thread_data_key_;
 	thread_id_key = v8::internal::Isolate::thread_id_key_;
+#endif
 #else
 	pthread_t thread;
 	pthread_create(&thread, NULL, find_thread_id_key, isolate);
