@@ -3,7 +3,16 @@
 	"version": "4.0.1",
 	"description": "Cooperative multi-tasking for Javascript",
 	"keywords": [
-		"fiber", "fibers", "coroutine", "thread", "async", "parallel", "worker", "future", "promise"],
+		"fiber",
+		"fibers",
+		"coroutine",
+		"thread",
+		"async",
+		"parallel",
+		"worker",
+		"future",
+		"promise"
+	],
 	"homepage": "https://github.com/laverdet/node-fibers",
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",

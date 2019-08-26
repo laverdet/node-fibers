@@ -652,19 +652,12 @@ coro_stack_alloc (struct coro_stack *stack, unsigned int size)
     int mflags = MAP_PRIVATE | MAP_ANONYMOUS;
   #if defined(__OpenBSD__) || defined(__FreeBSD__)
     mflags |= MAP_STACK;
-  #elif defined(__linux__)
-    mflags |= MAP_GROWSDOWN;
   #endif
     /* mmap supposedly does allocate-on-write for us */
-    base = mmap (0, ssze, PROT_READ | PROT_WRITE | PROT_EXEC, mflags, -1, 0);
+    base = mmap (0, ssze, PROT_READ | PROT_WRITE, mflags, -1, 0);
 
     if (base == (void *)-1)
       {
-        /* some systems don't let us have executable heap */
-        /* we assume they won't need executable stack in that case */
-        base = mmap (0, ssze, PROT_READ | PROT_WRITE, mflags, -1, 0);
-
-        if (base == (void *)-1)
           return 0;
       }
 
