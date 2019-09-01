@@ -564,7 +564,7 @@ class Fiber {
 			if (that.started && !that.yielding) {
 				THROW(Exception::Error, "This Fiber is already running");
 			} else if (args.Length() > 1) {
-				THROW(Exception::TypeError, "run() excepts 1 or no arguments");
+				THROW(Exception::TypeError, "run() expects 1 or no arguments");
 			}
 
 			if (!that.started) {
