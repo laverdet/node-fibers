@@ -203,7 +203,7 @@ namespace uni {
 	}
 	template <class T>
 	void Return(Persistent<T>& handle, GetterCallbackInfo info) {
-		info.GetReturnValue().Set(handle);
+		info.GetReturnValue().Set(Local<T>::New(Isolate::GetCurrent(), handle));
 	}
 
 	Local<Value> ThrowException(Isolate* isolate, Local<Value> exception) {
@@ -870,6 +870,7 @@ class Fiber {
 			// application is going down lost memory isn't the end of the world. But with a regular lock
 			// there's seg faults when node shuts down.
 			Isolate* isolate = Isolate::GetCurrent();
+			Local<Context> context = isolate->GetCurrentContext();
 			global_locker = new Locker(isolate);
 			current = NULL;
 
@@ -896,17 +897,17 @@ class Fiber {
 			// Global yield() function
 			Local<Function> yield = uni::GetFunction(uni::NewFunctionTemplate(isolate, Yield_));
 			Local<String> sym_yield = uni::NewLatin1Symbol(isolate, "yield");
-			target->Set(sym_yield, yield);
+			target->Set(context, sym_yield, yield).FromJust();
 
 			// Fiber properties
 			Local<Function> fn = uni::GetFunction(tmpl);
-			fn->Set(sym_yield, yield);
+			fn->Set(context, sym_yield, yield).FromJust();
 			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "current"), GetCurrent);
 			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "poolSize"), GetPoolSize, SetPoolSize);
 			uni::SetAccessor(isolate, fn, uni::NewLatin1Symbol(isolate, "fibersCreated"), GetFibersCreated);
 
 			// Global Fiber
-			target->Set(uni::NewLatin1Symbol(isolate, "Fiber"), fn);
+			target->Set(context, uni::NewLatin1Symbol(isolate, "Fiber"), fn).FromJust();
 			uni::Reset(isolate, fiber_object, fn);
 		}
 };
@@ -924,7 +925,8 @@ extern "C"
 #endif
 void init(Local<Object> target) {
 	Isolate* isolate = Isolate::GetCurrent();
-	if (did_init || !target->Get(uni::NewLatin1Symbol(isolate, "Fiber"))->IsUndefined()) {
+	Local<Context> context = isolate->GetCurrentContext();
+	if (did_init || !target->Get(context, uni::NewLatin1Symbol(isolate, "Fiber")).ToLocalChecked()->IsUndefined()) {
 		// Oh god. Node will call init() twice even though the library was loaded only once. See Node
 		// issue #2621 (no fix).
 		return;
