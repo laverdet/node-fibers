@@ -415,9 +415,9 @@ class Fiber {
 		static size_t external_bytes_used;
 		static size_t external_bytes_reported;
 		// We report external memory usage only when the difference
-		// between used and reported exceeds threshold, to avoid calling
+		// between used and reported exceeds a threshold, to avoid calling
 		// uni::AdjustAmountOfExternalAllocatedMemory too often.
-		static int external_bytes_threshold;
+		static int external_bytes_threshold_factor;
 
 		Isolate* isolate;
 		Persistent<Object> handle;
@@ -867,18 +867,20 @@ class Fiber {
 		}
 
 		static void AdjustExternalMemoryOnFiberStart(const Fiber& fiber) {
-			external_bytes_used += fiber.this_fiber->size() * GC_ADJUST;
+			int size = fiber.this_fiber->size();
+			external_bytes_used += size * GC_ADJUST;
 			int diff = external_bytes_used - external_bytes_reported;
-			if (diff > external_bytes_threshold) {
+			if (diff > size * external_bytes_threshold_factor) {
 				uni::AdjustAmountOfExternalAllocatedMemory(fiber.isolate, diff);
 				external_bytes_reported = external_bytes_used;
 			}
 		}
 
 		static void AdjustExternalMemoryOnFiberExit(const Fiber& fiber) {
-			external_bytes_used -= fiber.this_fiber->size() * GC_ADJUST;
+			int size = fiber.this_fiber->size();
+			external_bytes_used -= size * GC_ADJUST;
 			int diff = external_bytes_used - external_bytes_reported;
-			if (-diff > external_bytes_threshold) {
+			if (-diff > size * external_bytes_threshold_factor) {
 				uni::AdjustAmountOfExternalAllocatedMemory(fiber.isolate, diff);
 				external_bytes_reported = external_bytes_used;
 			}
@@ -949,7 +951,7 @@ Persistent<Value> Fiber::fatal_stack;
 // or exits.
 size_t Fiber::external_bytes_used = 0;
 size_t Fiber::external_bytes_reported = 0;
-int Fiber::external_bytes_threshold = 1024 * 1024;
+int Fiber::external_bytes_threshold_factor = 10;
 
 bool did_init = false;
 
