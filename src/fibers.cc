@@ -9,13 +9,6 @@
 
 #define THROW(x, m) return uni::Return(uni::ThrowException(Isolate::GetCurrent(), x(uni::NewLatin1String(Isolate::GetCurrent(), m))), args)
 
-// Run GC more often when debugging
-#ifdef DEBUG
-#define GC_ADJUST 100
-#else
-#define GC_ADJUST 1
-#endif
-
 using namespace std;
 using namespace v8;
 
@@ -412,13 +405,6 @@ class Fiber {
 		static vector<Fiber*> orphaned_fibers;
 		static Persistent<Value> fatal_stack;
 
-		static size_t external_bytes_used;
-		static size_t external_bytes_reported;
-		// We report external memory usage only when the difference
-		// between used and reported exceeds a threshold, to avoid calling
-		// uni::AdjustAmountOfExternalAllocatedMemory too often.
-		static int external_bytes_threshold_factor;
-
 		Isolate* isolate;
 		Persistent<Object> handle;
 		Persistent<Function> cb;
@@ -585,7 +571,6 @@ class Fiber {
 					THROW(Exception::RangeError, "Out of memory");
 				}
 				that.started = true;
-				AdjustExternalMemoryOnFiberStart(that);
 			} else {
 				// If the fiber is currently running put the first parameter to `run()` on `yielded`, then
 				// the pending call to `yield()` will return that value. `yielded` in this case is just a
@@ -765,10 +750,6 @@ class Fiber {
 					that.yielded_exception = false;
 				}
 
-				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
-				// otherwise.
-				AdjustExternalMemoryOnFiberExit(that);
-
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
 				if (!that.zombie) {
@@ -866,26 +847,6 @@ class Fiber {
 			return uni::Return(uni::NewNumber(Isolate::GetCurrent(), Coroutine::coroutines_created()), info);
 		}
 
-		static void AdjustExternalMemoryOnFiberStart(const Fiber& fiber) {
-			int size = fiber.this_fiber->size();
-			external_bytes_used += size * GC_ADJUST;
-			int diff = external_bytes_used - external_bytes_reported;
-			if (diff > size * external_bytes_threshold_factor) {
-				uni::AdjustAmountOfExternalAllocatedMemory(fiber.isolate, diff);
-				external_bytes_reported = external_bytes_used;
-			}
-		}
-
-		static void AdjustExternalMemoryOnFiberExit(const Fiber& fiber) {
-			int size = fiber.this_fiber->size();
-			external_bytes_used -= size * GC_ADJUST;
-			int diff = external_bytes_used - external_bytes_reported;
-			if (-diff > size * external_bytes_threshold_factor) {
-				uni::AdjustAmountOfExternalAllocatedMemory(fiber.isolate, diff);
-				external_bytes_reported = external_bytes_used;
-			}
-		}
-
 	public:
 		/**
 		 * Initialize the Fiber library.
@@ -945,14 +906,6 @@ Locker* Fiber::global_locker;
 Fiber* Fiber::current = NULL;
 vector<Fiber*> Fiber::orphaned_fibers;
 Persistent<Value> Fiber::fatal_stack;
-
-// Used by AdjustExternalMemoryOnFiber{Start,Exit} to avoid calling
-// uni::AdjustAmountOfExternalAllocatedMemory every time a Fiber starts
-// or exits.
-size_t Fiber::external_bytes_used = 0;
-size_t Fiber::external_bytes_reported = 0;
-int Fiber::external_bytes_threshold_factor = 10;
-
 bool did_init = false;
 
 #if !NODE_VERSION_AT_LEAST(0,10,0)
