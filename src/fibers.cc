@@ -9,13 +9,6 @@
 
 #define THROW(x, m) return uni::Return(uni::ThrowException(Isolate::GetCurrent(), x(uni::NewLatin1String(Isolate::GetCurrent(), m))), args)
 
-// Run GC more often when debugging
-#ifdef DEBUG
-#define GC_ADJUST 100
-#else
-#define GC_ADJUST 1
-#endif
-
 using namespace std;
 using namespace v8;
 
@@ -578,7 +571,6 @@ class Fiber {
 					THROW(Exception::RangeError, "Out of memory");
 				}
 				that.started = true;
-				uni::AdjustAmountOfExternalAllocatedMemory(that.isolate, that.this_fiber->size() * GC_ADJUST);
 			} else {
 				// If the fiber is currently running put the first parameter to `run()` on `yielded`, then
 				// the pending call to `yield()` will return that value. `yielded` in this case is just a
@@ -757,10 +749,6 @@ class Fiber {
 					uni::Reset(that.isolate, that.yielded, yielded);
 					that.yielded_exception = false;
 				}
-
-				// Do not invoke the garbage collector if there's no context on the stack. It will seg fault
-				// otherwise.
-				uni::AdjustAmountOfExternalAllocatedMemory(that.isolate, -(int)(that.this_fiber->size() * GC_ADJUST));
 
 				// Don't make weak until after notifying the garbage collector. Otherwise it may try and
 				// free this very fiber!
