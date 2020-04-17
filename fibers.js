@@ -44,7 +44,9 @@ function setupAsyncHacks(Fiber) {
 			throw new Error('Couldn\'t figure out how to get async stack size');
 		}
 
-		if (!aw.popAsyncIds || !aw.pushAsyncIds) {
+		var popAsyncContext = aw.popAsyncContext || aw.popAsyncIds;
+		var pushAsyncContext = aw.pushAsyncContext || aw.pushAsyncIds;
+		if (!popAsyncContext || !pushAsyncContext) {
 			throw new Error('Push/pop do not exist');
 		}
 
@@ -72,14 +74,14 @@ function setupAsyncHacks(Fiber) {
 					asyncId: asyncId,
 					triggerId: asyncIds[kTriggerAsyncId],
 				};
-				aw.popAsyncIds(asyncId);
+				popAsyncContext(asyncId);
 			}
 			return stack;
 		}
 
 		function restoreStack(stack) {
 			for (var ii = 0; ii < stack.length; ++ii) {
-				aw.pushAsyncIds(stack[ii].asyncId, stack[ii].triggerId);
+				pushAsyncContext(stack[ii].asyncId, stack[ii].triggerId);
 			}
 		}
 
