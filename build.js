@@ -8,13 +8,17 @@ var cp = require('child_process'),
 var force = false, debug = false;
 var
 	arch = process.arch,
-	platform = process.platform;
+	platform = process.platform,
+	modules = process.versions.modules;
 var args = process.argv.slice(2).filter(function(arg) {
 	if (arg === '-f') {
 		force = true;
 		return false;
 	} else if (arg.substring(0, 13) === '--target_arch') {
 		arch = arg.substring(14);
+	} else if (arg.substring(0, 10) === '--modules=') {
+		modules = arg.substring(10);
+		return false;
 	} else if (arg === '--debug') {
 		debug = true;
 	}
