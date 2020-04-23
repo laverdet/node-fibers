@@ -1,3 +1,19 @@
+**NOTE OF OBSOLESCENCE** -- The author of this project recommends you avoid its use if possible. The
+original version of this module targeted nodejs v0.1.x in early 2011 when JavaScript on the server
+looked a lot different. Since then
+[async/await](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function),
+[Promises](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise),
+and
+[Generators](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator)
+were standardized and the ecosystem as a whole has moved in that direction.
+
+I'll continue to support newer versions of nodejs as long as possible but v8 and nodejs are
+extraordinarily complex and dynamic platforms. It is inevitable that one day this library will
+abruptly stop working and no one will be able to do anything about it.
+
+I'd like to say thank you to all the users of fibers, your support over the years has meant a lot to
+me.
+
 fibers(1) -- Fiber support for v8 and Node
 ==========================================
 [![npm version](https://badgen.now.sh/npm/v/fibers)](https://www.npmjs.com/package/fibers)
