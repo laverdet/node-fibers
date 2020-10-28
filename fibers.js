@@ -1,23 +1,25 @@
 if (process.fiberLib) {
 	module.exports = process.fiberLib;
 } else {
-	var fs = require('fs'), path = require('path'), detectLibc = require('detect-libc');
+
+	// Find binary
+	var preGyp = require('node-pre-gyp');
+	var path = require('path');
+	var bindingPath = preGyp.find(path.resolve(path.join(__dirname, './package.json')));
 
 	// Seed random numbers [gh-82]
 	Math.random();
 
 	// Look for binary for this platform
-	var modPath = path.join(__dirname, 'bin', process.platform+ '-'+ process.arch+ '-'+ process.versions.modules+
-		((process.platform === 'linux') ? '-'+ detectLibc.family : ''), 'fibers');
 	try {
 		// Pull in fibers implementation
-		process.fiberLib = module.exports = require(modPath).Fiber;
+		process.fiberLib = module.exports = require(bindingPath).Fiber;
 	} catch (ex) {
 		// No binary!
 		console.error(
 			'## There is an issue with `node-fibers` ##\n'+
-			'`'+ modPath+ '.node` is missing.\n\n'+
-			'Try running this to fix the issue: '+ process.execPath+ ' '+ __dirname.replace(' ', '\\ ')+ '/build'
+			'`'+ bindingPath+ '.node` is missing.\n\n'+
+			'Try reinstalling this package.'
 		);
 		console.error(ex.stack || ex.message || ex);
 		throw new Error('Missing binary. See message above.');

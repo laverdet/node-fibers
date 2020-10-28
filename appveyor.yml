@@ -1,0 +1,40 @@
+init:
+  - ps: Update-AppveyorBuild -Version "$($env:appveyor_repo_commit.substring(0,10))"
+
+environment:
+  APPVEYOR_YML_DISABLE_PS_LINUX: true
+
+  matrix:
+    - nodejs_version: 12
+    - nodejs_version: 14
+
+  node_pre_gyp_accessKeyId:
+    secure: EXvTSNzY3sPGt9RJWn0rXMwaDeV5aILRc7Gq4+Lr0Lc=
+  node_pre_gyp_secretAccessKey:
+    secure: +LQfTBxbMRecXM64UTvp1i7sve4cZNmN95cXEJ/M5L84150/c8FQ4bqNF1e++EQA
+
+platform:
+  - x86
+  - x64
+
+image:
+  - Visual Studio 2015
+  - Ubuntu
+  - macOS
+
+install:
+  - ps: Install-Product node $env:nodejs_version $env:Platform
+  - ps: Set-ExecutionPolicy Unrestricted -Scope CurrentUser -Force
+  - cmd: IF /I "%PLATFORM%" == "x64" set PATH=C:\Python27-x64;%PATH%
+  - cmd: IF /I "%PLATFORM%" == "x86" SET PATH=C:\python27;%PATH%
+  - cmd: IF /I "%PLATFORM%" == "x64" CALL "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64
+  - cmd: IF /I "%PLATFORM%" == "x86" CALL "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86
+  - sh: nvm install $nodejs_version
+  - npm install -D --ignore-scripts
+  - npx node-pre-gyp rebuild
+  - npm test
+  - npx node-pre-gyp package publish
+
+build: off
+test: off
+deploy: off

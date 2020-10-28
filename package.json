@@ -17,8 +17,15 @@
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
 	"main": "fibers",
 	"scripts": {
-		"install": "node build.js || nodejs build.js",
-		"test": "node test.js || nodejs test.js"
+		"install": "node-pre-gyp install --fallback-to-build",
+		"test": "node test.js"
+	},
+	"binary": {
+		"module_name": "fibers",
+		"module_path": "./lib/v{version}-{node_abi}-{platform}-{libc}-{arch}",
+		"package_name": "{node_abi}-{platform}-{libc}-{arch}.tar.gz",
+		"host": "https://fibers.s3-us-west-2.amazonaws.com",
+		"remote_path": "./v{version}/"
 	},
 	"repository": {
 		"type": "git",
@@ -29,6 +36,10 @@
 		"node": ">=10.0.0"
 	},
 	"dependencies": {
-		"detect-libc": "^1.0.3"
+		"node-gyp": "^7.1.2",
+		"node-pre-gyp": "^0.15.0"
+	},
+	"devDependencies": {
+		"aws-sdk": "^2.781.0"
 	}
 }
