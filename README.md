@@ -14,6 +14,11 @@ abruptly stop working and no one will be able to do anything about it.
 I'd like to say thank you to all the users of fibers, your support over the years has meant a lot to
 me.
 
+**Update** *[April 13th, 2021]* -- Fibers is not compatible with nodejs v16.0.0 or later. Unfortunately, v8
+commit [dacc2fee0f](https://github.com/v8/v8/commit/dacc2fee0f815823782a7e432c79c2a7767a4765) is a breaking
+change and workarounds are non-trivial.
+
+
 fibers(1) -- Fiber support for v8 and Node
 ==========================================
 [![npm version](https://badgen.now.sh/npm/v/fibers)](https://www.npmjs.com/package/fibers)
