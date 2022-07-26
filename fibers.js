@@ -86,13 +86,23 @@ function setupAsyncHacks(Fiber) {
 		}
 
 		function logUsingFibers(fibersMethod) {
-			const { ENABLE_LOG_USE_FIBERS } = process.env;
+			const logUseFibersLevel = +(process.env.ENABLE_LOG_USE_FIBERS || 0);
 
-			if (!ENABLE_LOG_USE_FIBERS) return;
+			if (!logUseFibersLevel) return;
 
-			console.warn(`[FIBERS_LOG] Using ${fibersMethod}.`);
-			if (ENABLE_LOG_USE_FIBERS > 1) {
-				console.trace();
+			if (logUseFibersLevel === 1) {
+				console.warn(`[FIBERS_LOG] Using ${fibersMethod}.`);
+				return;
+			}
+
+			const { LOG_USE_FIBERS_INCLUDE_IN_PATH } = process.env;
+			const stackFromError = new Error("[FIBERS_LOG]").stack;
+
+			if (
+				!LOG_USE_FIBERS_INCLUDE_IN_PATH ||
+				stackFromError.includes(LOG_USE_FIBERS_INCLUDE_IN_PATH)
+			) {
+				console.warn(stackFromError);
 			}
 		}
 
