@@ -96,7 +96,7 @@ function setupAsyncHacks(Fiber) {
 			}
 
 			const { LOG_USE_FIBERS_INCLUDE_IN_PATH } = process.env;
-			const stackFromError = new Error("[FIBERS_LOG]").stack;
+			const stackFromError = new Error(`[FIBERS_LOG] Using ${fibersMethod}.`).stack;
 
 			if (
 				!LOG_USE_FIBERS_INCLUDE_IN_PATH ||
