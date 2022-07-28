@@ -85,21 +85,46 @@ function setupAsyncHacks(Fiber) {
 			}
 		}
 
-		function wrapFunction(fn) {
-			return function() {
+		function logUsingFibers(fibersMethod) {
+			const logUseFibersLevel = +(process.env.ENABLE_LOG_USE_FIBERS || 0);
+
+			if (!logUseFibersLevel) return;
+
+			if (logUseFibersLevel === 1) {
+				console.warn(`[FIBERS_LOG] Using ${fibersMethod}.`);
+				return;
+			}
+
+			const { LOG_USE_FIBERS_INCLUDE_IN_PATH } = process.env;
+			const stackFromError = new Error(`[FIBERS_LOG] Using ${fibersMethod}.`).stack;
+
+			if (
+				!LOG_USE_FIBERS_INCLUDE_IN_PATH ||
+				stackFromError.includes(LOG_USE_FIBERS_INCLUDE_IN_PATH)
+			) {
+				console.warn(stackFromError);
+			}
+		}
+
+		function wrapFunction(fn, fibersMethod) {
+			return function () {
+				logUsingFibers(fibersMethod);
 				var stack = getAndClearStack();
 				try {
 					return fn.apply(this, arguments);
 				} finally {
 					restoreStack(stack);
 				}
-			}
+			};
 		}
 
 		// Monkey patch methods which may long jump
-		Fiber.yield = wrapFunction(Fiber.yield);
-		Fiber.prototype.run = wrapFunction(Fiber.prototype.run);
-		Fiber.prototype.throwInto = wrapFunction(Fiber.prototype.throwInto);
+		Fiber.yield = wrapFunction(Fiber.yield, "Fiber.yield");
+		Fiber.prototype.run = wrapFunction(Fiber.prototype.run, "Fiber.run");
+		Fiber.prototype.throwInto = wrapFunction(
+			Fiber.prototype.throwInto,
+			"Fiber.throwInto"
+		);
 
 	} catch (err) {
 		return;
