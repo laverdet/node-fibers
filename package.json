@@ -15,7 +15,7 @@
 	],
 	"homepage": "https://github.com/laverdet/node-fibers",
 	"author": "Marcel Laverdet <marcel@laverdet.com> (https://github.com/laverdet/)",
-	"main": "fibers",
+	"main": "fibers_async",
 	"scripts": {
 		"install": "node build.js || nodejs build.js",
 		"test": "node test.js || nodejs test.js"

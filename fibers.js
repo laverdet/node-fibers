@@ -23,7 +23,7 @@ if (process.fiberLib) {
 		throw new Error('Missing binary. See message above.');
 	}
 
-	setupAsyncHacks(module.exports);
+	//setupAsyncHacks(module.exports);
 }
 
 function setupAsyncHacks(Fiber) {
