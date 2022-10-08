@@ -56,5 +56,9 @@ Fiber.prototype = {
 
   run(...args) {
     return this._ar.runInAsyncScope(() => this._fiber.run(...args));
+  },
+
+  throwInto(...args) {
+    return this._ar.runInAsyncScope(() => this._fiber.throwInto(...args));
   }
 }
