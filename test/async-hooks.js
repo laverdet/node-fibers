@@ -4,7 +4,7 @@ if (process.versions.modules < 57) {
 	console.log('pass');
 	return;
 }
-const { AsyncResource } = require('async_hooks');
+const { AsyncResource, executionAsyncResource } = require('async_hooks');
 const Fiber = require('fibers');
 
 class TestResource extends AsyncResource {
@@ -28,7 +28,12 @@ class TestResource extends AsyncResource {
 let tmp = Fiber(function() {
 	let resource = new TestResource;
 	resource.run(function() {
+		let asyncResource = executionAsyncResource();
 		Fiber.yield();
+		if (executionAsyncResource() !== asyncResource) {
+			console.log('fail');
+			throw new Error('executionAsyncResource not restored correctly');
+		}
 	});
 });
 tmp.run();
