@@ -30,6 +30,7 @@ function setupAsyncHacks(Fiber) {
 	// Older (or newer?) versions of node may not support this API
 	try {
 		var aw = process.binding('async_wrap');
+    var ah = require('async_hooks');
 		var getAsyncIdStackSize;
 
 		if (aw.asyncIdStackSize instanceof Function) {
@@ -71,6 +72,7 @@ function setupAsyncHacks(Fiber) {
 			for (; ii > 0; --ii) {
 				var asyncId = asyncIds[kExecutionAsyncId];
 				stack[ii - 1] = {
+          asyncResource: ah.executionAsyncResource(),
 					asyncId: asyncId,
 					triggerId: asyncIds[kTriggerAsyncId],
 				};
@@ -82,6 +84,7 @@ function setupAsyncHacks(Fiber) {
 		function restoreStack(stack) {
 			for (var ii = 0; ii < stack.length; ++ii) {
 				pushAsyncContext(stack[ii].asyncId, stack[ii].triggerId);
+				aw.execution_async_resources.push(stack[ii].asyncResource);
 			}
 		}
 
