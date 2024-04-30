@@ -451,7 +451,7 @@ class Fiber {
 		 * i.e. After fiber completes, while yielded, or before started
 		 */
 		void MakeWeak() {
-			uni::MakeWeak<WeakCallback>(isolate, handle, (void*)this);
+		//	uni::MakeWeak<WeakCallback>(isolate, handle, (void*)this);
 		}
 
 		/**
