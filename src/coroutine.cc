@@ -16,8 +16,11 @@
 #define pthread_getspecific(key) TlsGetValue((key))
 #endif
 
+#include <errno.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdexcept>
 #include <stack>
@@ -28,6 +31,30 @@ static pthread_key_t coro_thread_key = 0;
 static pthread_key_t isolate_key = 0x7777;
 static pthread_key_t thread_id_key = 0x7777;
 static pthread_key_t thread_data_key = 0x7777;
+
+#if defined(__GNUC__)
+__attribute__((noreturn, cold, format(printf, 5, 6)))
+#endif
+static void fibers_check_failed(const char* file, int line, const char* func, const char* cond, const char* fmt, ...) {
+	fprintf(stderr, "fibers: %s:%d: %s: check `%s` failed: ", file, line, func, cond);
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fputc('\n', stderr);
+	fflush(stderr);
+	abort();
+}
+
+// Unlike assert(), survives NDEBUG: these guard memory safety, not debugging.
+#define FIBERS_CHECK(cond, ...) \
+	do { \
+		if (!(cond)) fibers_check_failed(__FILE__, __LINE__, __func__, #cond, __VA_ARGS__); \
+	} while (0)
+
+// From v8 9.0 on some of v8's thread identity lives only in `thread_local`s, so failing to read the
+// executable's symbols is fatal. Before that the pthread key scan finds all of it.
+static const bool tls_symbols_required = V8_AT_LEAST(9, 0);
 
 // v8's per-thread identity, swapped on every fiber switch so that each fiber looks like its own
 // thread to v8. Older v8 keeps these in pthread keys; newer v8 keeps them in C++ `thread_local`s of
@@ -61,26 +88,44 @@ static char* exe_tls_base() {
 
 static char* tls_slot_address(char* base, size_t offset) { return base + offset; }
 
-// Finds `thread_local` variables of the node executable by mangled name. Returns false for the
-// ones which don't exist in this build (or if the executable is stripped).
+// Finds `thread_local` variables of the node executable by mangled name, leaving `found` false for
+// the ones which don't exist in this build (or all of them, if the executable is stripped).
+//
+// The names are internal to v8, so the dynamic linker can't resolve them: they are only in the
+// full symbol table (.symtab), which is not loaded into memory. Hence reading the file on disk.
 static void find_exe_tls_symbols(const char* const* names, size_t count, bool* found, size_t* offsets, size_t* sizes) {
-	for (size_t ii = 0; ii < count; ++ii) found[ii] = false;
+	memset(found, 0, count * sizeof(bool));
 	int fd = open("/proc/self/exe", O_RDONLY);
-	if (fd < 0) return;
+	if (fd < 0) {
+		FIBERS_CHECK(!tls_symbols_required, "open(/proc/self/exe): %s", strerror(errno));
+		return;
+	}
 	struct stat st;
-	if (fstat(fd, &st) != 0) { close(fd); return; }
+	if (fstat(fd, &st) != 0) {
+		FIBERS_CHECK(!tls_symbols_required, "fstat(/proc/self/exe): %s", strerror(errno));
+		close(fd);
+		return;
+	}
 	void* map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	close(fd);
-	if (map == MAP_FAILED) return;
+	if (map == MAP_FAILED) {
+		FIBERS_CHECK(!tls_symbols_required, "mmap(/proc/self/exe): %s", strerror(errno));
+		return;
+	}
 	const char* base = static_cast<const char*>(map);
+	// The ELF header gives the section header table; each section header has a type
 	const ElfW(Ehdr)* ehdr = reinterpret_cast<const ElfW(Ehdr)*>(base);
 	const ElfW(Shdr)* shdr = reinterpret_cast<const ElfW(Shdr)*>(base + ehdr->e_shoff);
 	for (size_t ii = 0; ii < ehdr->e_shnum; ++ii) {
 		if (shdr[ii].sh_type != SHT_SYMTAB) continue;
+		// A symbol table is an array of fixed-size entries; `sh_link` names the section holding
+		// their names, which each entry points into by offset
 		const ElfW(Sym)* sym = reinterpret_cast<const ElfW(Sym)*>(base + shdr[ii].sh_offset);
 		const char* strtab = base + shdr[shdr[ii].sh_link].sh_offset;
 		size_t sym_count = shdr[ii].sh_size / sizeof(ElfW(Sym));
 		for (size_t jj = 0; jj < sym_count; ++jj) {
+			// For a `thread_local` (STT_TLS), `st_value` is not an address but the variable's offset
+			// in the executable's TLS block, the same for every thread
 			if (ELF64_ST_TYPE(sym[jj].st_info) != STT_TLS) continue;
 			for (size_t kk = 0; kk < count; ++kk) {
 				if (strcmp(strtab + sym[jj].st_name, names[kk]) == 0) {
@@ -111,12 +156,19 @@ static char* tls_slot_address(char*, size_t descriptor) {
 	return static_cast<char*>(tlv->thunk(tlv));
 }
 
+// As on ELF, v8's internal names are only in the full symbol table. Unlike ELF, dyld maps that
+// table into memory with the rest of the image (the __LINKEDIT segment), so nothing is read from
+// disk.
 static void find_exe_tls_symbols(const char* const* names, size_t count, bool* found, size_t* offsets, size_t* sizes) {
-	for (size_t ii = 0; ii < count; ++ii) found[ii] = false;
+	memset(found, 0, count * sizeof(bool));
 	// Image 0 is the main executable
 	const struct mach_header_64* header = reinterpret_cast<const struct mach_header_64*>(_dyld_get_image_header(0));
-	if (!header || header->magic != MH_MAGIC_64) return;
+	FIBERS_CHECK(header && header->magic == MH_MAGIC_64, "the node executable is not a 64-bit Mach-O image");
+	// How far the image was moved from the addresses recorded in the file (ASLR)
 	intptr_t slide = _dyld_get_image_vmaddr_slide(0);
+	// The load commands follow the header. Two are needed: the __LINKEDIT segment, which says
+	// where the link-edit data is mapped, and LC_SYMTAB, which says where in that data the symbol
+	// and string tables are.
 	const struct segment_command_64* linkedit = NULL;
 	const struct symtab_command* symtab = NULL;
 	const struct load_command* cmd = reinterpret_cast<const struct load_command*>(header + 1);
@@ -129,17 +181,25 @@ static void find_exe_tls_symbols(const char* const* names, size_t count, bool* f
 		}
 		cmd = reinterpret_cast<const struct load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
 	}
-	if (!linkedit || !symtab) return;
+	if (!linkedit || !symtab) {
+		FIBERS_CHECK(!tls_symbols_required, "the node executable has no symbol table");
+		return;
+	}
+	// LC_SYMTAB's offsets are file offsets; this is the address file offset 0 would have if the
+	// whole file were mapped the way __LINKEDIT is
 	const char* base = reinterpret_cast<const char*>(slide + linkedit->vmaddr - linkedit->fileoff);
 	const struct nlist_64* sym = reinterpret_cast<const struct nlist_64*>(base + symtab->symoff);
 	const char* strtab = base + symtab->stroff;
 	for (uint32_t jj = 0; jj < symtab->nsyms; ++jj) {
+		// Skip debugger entries and anything not defined in a section of this image
 		if ((sym[jj].n_type & N_STAB) || (sym[jj].n_type & N_TYPE) != N_SECT) continue;
+		// Mach-O prefixes every C symbol with an underscore
 		const char* name = strtab + sym[jj].n_un.n_strx;
 		if (name[0] != '_') continue;
 		for (size_t kk = 0; kk < count; ++kk) {
 			if (strcmp(name + 1, names[kk]) == 0) {
 				found[kk] = true;
+				// The address of the variable's TlvDescriptor, not of the variable
 				offsets[kk] = sym[jj].n_value + slide;
 				// The symbol table has no sizes: the thread id is an int, the rest are pointers
 				sizes[kk] = strstr(names[kk], "thread_idE") ? sizeof(int) : sizeof(void*);
@@ -148,20 +208,18 @@ static void find_exe_tls_symbols(const char* const* names, size_t count, bool* f
 	}
 }
 #else
-static char* exe_tls_base() { return NULL; }
-static char* tls_slot_address(char* base, size_t offset) { return base + offset; }
-static void find_exe_tls_symbols(const char* const* names, size_t count, bool* found, size_t* offsets, size_t* sizes) {
-	for (size_t ii = 0; ii < count; ++ii) found[ii] = false;
-}
+#error "fibers only knows how to find v8's thread-locals in ELF (Linux) and Mach-O (macOS) executables"
 #endif
 
 static void add_key_slot(pthread_key_t key) {
+	FIBERS_CHECK(slot_count < Coroutine::max_tls_slots, "%zu slots is one too many", slot_count + 1);
 	TlsSlot slot = { true, key, 0, sizeof(void*) };
 	slots[slot_count++] = slot;
 }
 
 static void add_tls_slot(size_t offset, size_t size) {
-	assert(size <= sizeof(uint64_t));
+	FIBERS_CHECK(slot_count < Coroutine::max_tls_slots, "%zu slots is one too many", slot_count + 1);
+	FIBERS_CHECK(size <= sizeof(uint64_t), "a %zu byte thread-local does not fit in a slot", size);
 	TlsSlot slot = { false, 0, offset, size };
 	slots[slot_count++] = slot;
 }
@@ -324,15 +382,26 @@ void Coroutine::init(v8::Isolate* isolate) {
 	thread_data_key = v8::internal::Isolate::per_isolate_thread_data_key_;
 	thread_id_key = v8::internal::Isolate::thread_id_key_;
 #else
+	// The two in an anonymous namespace are spelled with an `L` by compilers which mark internal
+	// linkage in the name, so each is looked for both ways.
 	static const char* const names[] = {
 		"_ZN2v88internal18g_current_isolate_E",
 		"_ZN2v88internal34g_current_per_isolate_thread_data_E",
 		"_ZN2v88internal12_GLOBAL__N_19thread_idE",
 		"_ZN2v84base12_GLOBAL__N_118thread_stack_startE",
+		"_ZN2v88internal12_GLOBAL__N_1L9thread_idE",
+		"_ZN2v84base12_GLOBAL__N_1L18thread_stack_startE",
 	};
-	bool found[4];
-	size_t offsets[4], sizes[4];
-	find_exe_tls_symbols(names, 4, found, offsets, sizes);
+	bool found[6];
+	size_t offsets[6], sizes[6];
+	find_exe_tls_symbols(names, 6, found, offsets, sizes);
+	for (size_t ii = 2; ii < 4; ++ii) {
+		if (!found[ii] && found[ii + 2]) {
+			found[ii] = true;
+			offsets[ii] = offsets[ii + 2];
+			sizes[ii] = sizes[ii + 2];
+		}
+	}
 	// v8 9.0 moved the thread id to a `thread_local`, 11.x the isolate, per-thread data and the
 	// cached stack start. Without their symbols every fiber would share one v8 thread identity.
 	bool missing = V8_AT_LEAST(11, 0) ? !(found[0] && found[1] && found[2] && found[3]) :

@@ -14,6 +14,8 @@ class Coroutine {
 #endif
 		coro_context context;
 		coro_stack stack;
+		// One value per slot of v8 thread identity. Not `void*`: a slot is either a pthread key's
+		// pointer or the raw bytes of a `thread_local`, which may be narrower (the thread id is an int).
 		uint64_t fls_data[8];
 		entry_t* entry;
 		void* arg;

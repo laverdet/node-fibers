@@ -26,9 +26,44 @@ if (process.fiberLib) {
 	setupAsyncHacks(module.exports);
 }
 
+// What a fiber switch does to v8 is only sound with some of node's defaults turned off. Starting
+// without them corrupts the heap or mixes async context between fibers, so refuse to load.
+function checkFlags() {
+	var flags = process.execArgv.concat((process.env.NODE_OPTIONS || '').split(/\s+/));
+	var major = parseInt(process.versions.node, 10);
+	var problems = [];
+	// A conservative scan only walks the running fiber's stack, so what a suspended fiber's stack
+	// refers to could be moved or freed.
+	['--conservative-stack-scanning', '--scavenger-conservative-object-pinning'].forEach(function(flag) {
+		if (flags.indexOf(flag) !== -1) {
+			problems.push('remove '+ flag);
+		}
+	});
+	// AsyncContextFrame keeps the current async context in one isolate-wide slot, which v8 visits
+	// once for every suspended fiber during garbage collection.
+	var asyncContextFrame;
+	if (major >= 24) {
+		try {
+			asyncContextFrame = require('internal/async_context_frame').enabled;
+		} catch (err) {
+			problems.push('add --expose-internals');
+		}
+	} else {
+		asyncContextFrame = flags.indexOf('--experimental-async-context-frame') !== -1;
+	}
+	if (asyncContextFrame) {
+		problems.push(major >= 24 ? 'add --no-async-context-frame' : 'remove --experimental-async-context-frame');
+	}
+	if (problems.length) {
+		throw new Error('fibers cannot run with these node flags: '+ problems.join(', '));
+	}
+}
+
 function setupAsyncHacks(Fiber) {
-	// Older (or newer?) versions of node may not support this API
-	try {
+	checkFlags();
+	// A failure here is not swallowed: without the async id stack swap below, a fiber switch leaves
+	// async_hooks (and so AsyncLocalStorage) on the wrong context.
+	{
 		var aw;
 		try {
 			aw = process.binding('async_wrap');
@@ -132,7 +167,5 @@ function setupAsyncHacks(Fiber) {
 			"Fiber.throwInto"
 		);
 
-	} catch (err) {
-		return;
 	}
 }
