@@ -24,7 +24,11 @@ namespace uni {
 
 	template <void (*F)(void*), class T, typename P>
 	void MakeWeak(Isolate* isolate, Persistent<T>& handle, P* val) {
+#if V8_AT_LEAST(11, 0)
+		handle.SetWeak(val, WeakCallbackShim<F, P>, WeakCallbackType::kParameter);
+#else
 		handle.SetWeak(val, WeakCallbackShim<F, P>, WeakCallbackType::kFinalizer);
+#endif
 	}
 #elif V8_AT_LEAST(3, 26)
 	template <void (*F)(void*), class T, typename P>
@@ -174,11 +178,19 @@ namespace uni {
 
 	template <class T>
 	void SetInternalPointer(Local<T> handle, int index, void* val) {
+#if V8_AT_LEAST(14, 0)
+		handle->SetAlignedPointerInInternalField(index, val, kEmbedderDataTypeTagDefault);
+#else
 		handle->SetAlignedPointerInInternalField(index, val);
+#endif
 	}
 	template <class T>
 	void* GetInternalPointer(Local<T> handle, int index) {
+#if V8_AT_LEAST(14, 0)
+		return handle->GetAlignedPointerFromInternalField(index, kEmbedderDataTypeTagDefault);
+#else
 		return handle->GetAlignedPointerFromInternalField(index);
+#endif
 	}
 
 	template <class T>
@@ -191,11 +203,11 @@ namespace uni {
 		args.GetReturnValue().Set(handle);
 	}
 	template <class T>
-	void Return(Local<T> handle, GetterCallbackInfo info) {
+	void Return(Local<T> handle, const GetterCallbackInfo& info) {
 		info.GetReturnValue().Set(handle);
 	}
 	template <class T>
-	void Return(Persistent<T>& handle, GetterCallbackInfo info) {
+	void Return(Persistent<T>& handle, const GetterCallbackInfo& info) {
 		info.GetReturnValue().Set(Local<T>::New(Isolate::GetCurrent(), handle));
 	}
 
@@ -346,7 +358,15 @@ namespace uni {
 	}
 #endif
 
-#if V8_AT_LEAST(6, 1)
+#if V8_AT_LEAST(11, 0)
+	void SetAccessor(
+		Isolate* isolate, Local<Object> object, Local<String> name,
+		FunctionType (*getter)(Local<Name>, const GetterCallbackInfo&),
+		void (*setter)(Local<Name> property, Local<Value> value, const SetterCallbackInfo&) = 0
+	) {
+		object->SetNativeDataProperty(isolate->GetCurrentContext(), name, getter, setter).ToChecked();
+	}
+#elif V8_AT_LEAST(6, 1)
 	void SetAccessor(
 		Isolate* isolate, Local<Object> object, Local<String> name,
 		FunctionType (*getter)(Local<String>, const GetterCallbackInfo&),
@@ -370,6 +390,12 @@ namespace uni {
 	) {
 		object->SetAccessor(name, (AccessorNameGetterCallback)getter, (AccessorNameSetterCallback)setter);
 	}
+#endif
+
+#if V8_AT_LEAST(11, 0)
+	typedef Local<Name> PropertyName;
+#else
+	typedef Local<String> PropertyName;
 #endif
 
 #if V8_AT_LEAST(3, 29)
@@ -474,12 +500,19 @@ class Fiber {
 			assert(that.handle.IsNearDeath());
 #endif
 			assert(current != &that);
+#if V8_AT_LEAST(11, 0)
+			// The JS object is already dead and can't be resurrected. `DestroyOrphans` gives a
+			// suspended fiber a new one to unwind with.
+			that.handle.Reset();
+#endif
 
 			// We'll unwind running fibers later... doing it from the garbage collector is bad news.
 			if (that.started) {
 				assert(that.yielding);
 				orphaned_fibers.push_back(&that);
+#if !V8_AT_LEAST(11, 0)
 				that.ClearWeak();
+#endif
 				return;
 			}
 
@@ -504,6 +537,15 @@ class Fiber {
 
 			for (vector<Fiber*>::iterator ii = orphans.begin(); ii != orphans.end(); ++ii) {
 				Fiber& that = **ii;
+#if V8_AT_LEAST(11, 0)
+				if (that.handle.IsEmpty()) {
+					HandleScope scope(that.isolate);
+					Local<Object> wrapper = uni::Deref(that.isolate, tmpl)->InstanceTemplate()->NewInstance(
+						uni::Deref(that.isolate, that.v8_context)).ToLocalChecked();
+					uni::SetInternalPointer(wrapper, 0, &that);
+					uni::Reset(that.isolate, that.handle, wrapper);
+				}
+#endif
 				that.UnwindStack();
 
 				if (that.yielded_exception) {
@@ -549,7 +591,7 @@ class Fiber {
 		 * be created and the callback will start. Otherwise we switch back into the exist context.
 		 */
 		static uni::FunctionType Run(const uni::Arguments& args) {
-			Fiber& that = Unwrap(args.Holder());
+			Fiber& that = Unwrap(args.This());
 
 			// There seems to be no better place to put this check..
 			DestroyOrphans();
@@ -590,7 +632,7 @@ class Fiber {
 		 * Throw an exception into a currently yielding fiber.
 		 */
 		static uni::FunctionType ThrowInto(const uni::Arguments& args) {
-			Fiber& that = Unwrap(args.Holder());
+			Fiber& that = Unwrap(args.This());
 
 			if (!that.yielding) {
 				THROW(Exception::Error, "This Fiber is not yielding");
@@ -611,7 +653,7 @@ class Fiber {
 		 * effect.
 		 */
 		static uni::FunctionType Reset(const uni::Arguments& args) {
-			Fiber& that = Unwrap(args.Holder());
+			Fiber& that = Unwrap(args.This());
 
 			if (!that.started) {
 				return uni::Return(uni::Undefined(that.isolate), args);
@@ -681,8 +723,10 @@ class Fiber {
 			// This will jump into either `RunFiber()` or `Yield()`, depending on if the fiber was
 			// already running.
 			{
-				Unlocker unlocker(isolate);
+				// Exit before unlocking so that on the way back v8 restores this fiber's thread state
+				// before `Enter()` touches it.
 				uni::ReverseIsolateScope isolate_scope(isolate);
+				Unlocker unlocker(isolate);
 				this_fiber->run();
 			}
 
@@ -795,8 +839,8 @@ class Fiber {
 			// ok to garbage collect. If no one ever has a handle to resume the function it's harmful to
 			// keep the handle around.
 			{
-				Unlocker unlocker(that.isolate);
 				uni::ReverseIsolateScope isolate_scope(that.isolate);
+				Unlocker unlocker(that.isolate);
 				that.yielding = true;
 				that.entry_fiber->run();
 				that.yielding = false;
@@ -813,15 +857,15 @@ class Fiber {
 		/**
 		 * Getters for `started`, and `current`.
 		 */
-		static uni::FunctionType GetStarted(Local<String> property, const uni::GetterCallbackInfo& info) {
-			if (info.This().IsEmpty() || info.This()->InternalFieldCount() != 1) {
-				return uni::Return(uni::Undefined(Isolate::GetCurrent()), info);
+		static uni::FunctionType GetStarted(const uni::Arguments& args) {
+			if (!args.This()->IsObject() || args.This().As<Object>()->InternalFieldCount() != 1) {
+				return uni::Return(uni::Undefined(Isolate::GetCurrent()), args);
 			}
-			Fiber& that = Unwrap(info.This());
-			return uni::Return(uni::NewBoolean(that.isolate, that.started), info);
+			Fiber& that = Unwrap(args.This().As<Object>());
+			return uni::Return(uni::NewBoolean(that.isolate, that.started), args);
 		}
 
-		static uni::FunctionType GetCurrent(Local<String> property, const uni::GetterCallbackInfo& info) {
+		static uni::FunctionType GetCurrent(uni::PropertyName property, const uni::GetterCallbackInfo& info) {
 			if (current) {
 				return uni::Return(current->handle, info);
 			} else {
@@ -832,18 +876,18 @@ class Fiber {
 		/**
 		 * Allow access to coroutine pool size
 		 */
-		static uni::FunctionType GetPoolSize(Local<String> property, const uni::GetterCallbackInfo& info) {
+		static uni::FunctionType GetPoolSize(uni::PropertyName property, const uni::GetterCallbackInfo& info) {
 			return uni::Return(uni::NewNumber(Isolate::GetCurrent(), Coroutine::pool_size), info);
 		}
 
-		static void SetPoolSize(Local<String> property, Local<Value> value, const uni::SetterCallbackInfo& info) {
+		static void SetPoolSize(uni::PropertyName property, Local<Value> value, const uni::SetterCallbackInfo& info) {
 			Coroutine::pool_size = uni::ToNumber(value)->Value();
 		}
 
 		/**
 		 * Return number of fibers that have been created
 		 */
-		static uni::FunctionType GetFibersCreated(Local<String> property, const uni::GetterCallbackInfo& info) {
+		static uni::FunctionType GetFibersCreated(uni::PropertyName property, const uni::GetterCallbackInfo& info) {
 			return uni::Return(uni::NewNumber(Isolate::GetCurrent(), Coroutine::coroutines_created()), info);
 		}
 
@@ -880,7 +924,8 @@ class Fiber {
 				uni::NewFunctionTemplate(isolate, Run, Local<Value>(), sig));
 			proto->Set(uni::NewLatin1Symbol(isolate, "throwInto"),
 				uni::NewFunctionTemplate(isolate, ThrowInto, Local<Value>(), sig));
-			proto->SetAccessor(uni::NewLatin1Symbol(isolate, "started"), GetStarted);
+			proto->SetAccessorProperty(uni::NewLatin1Symbol(isolate, "started"),
+				uni::NewFunctionTemplate(isolate, GetStarted));
 
 			// Global yield() function
 			Local<Function> yield = uni::GetFunction(uni::NewFunctionTemplate(isolate, Yield_));

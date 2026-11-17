@@ -16,17 +16,238 @@
 #define pthread_getspecific(key) TlsGetValue((key))
 #endif
 
+#include <errno.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <stdexcept>
 #include <stack>
 #include <vector>
 using namespace std;
 
-const size_t v8_tls_keys = 3;
-static std::vector<void*> fls_data_pool;
 static pthread_key_t coro_thread_key = 0;
 static pthread_key_t isolate_key = 0x7777;
 static pthread_key_t thread_id_key = 0x7777;
 static pthread_key_t thread_data_key = 0x7777;
+
+#if defined(__GNUC__)
+__attribute__((noreturn, cold, format(printf, 5, 6)))
+#endif
+static void fibers_check_failed(const char* file, int line, const char* func, const char* cond, const char* fmt, ...) {
+	fprintf(stderr, "fibers: %s:%d: %s: check `%s` failed: ", file, line, func, cond);
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fputc('\n', stderr);
+	fflush(stderr);
+	abort();
+}
+
+// Unlike assert(), survives NDEBUG: these guard memory safety, not debugging.
+#define FIBERS_CHECK(cond, ...) \
+	do { \
+		if (!(cond)) fibers_check_failed(__FILE__, __LINE__, __func__, #cond, __VA_ARGS__); \
+	} while (0)
+
+// From v8 9.0 on some of v8's thread identity lives only in `thread_local`s, so failing to read the
+// executable's symbols is fatal. Before that the pthread key scan finds all of it.
+static const bool tls_symbols_required = V8_AT_LEAST(9, 0);
+
+// v8's per-thread identity, swapped on every fiber switch so that each fiber looks like its own
+// thread to v8. Older v8 keeps these in pthread keys; newer v8 keeps them in C++ `thread_local`s of
+// the node executable, which are located through the executable's symbol table.
+struct TlsSlot {
+	bool is_key;
+	pthread_key_t key;
+	size_t offset;
+	size_t size;
+};
+static TlsSlot slots[Coroutine::max_tls_slots];
+static size_t slot_count = 0;
+static long stack_start_slot = -1;
+
+#ifdef __ELF__
+#include <elf.h>
+#include <fcntl.h>
+#include <link.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+struct tls_index_t { unsigned long module; unsigned long offset; };
+extern "C" void* __tls_get_addr(tls_index_t*);
+
+static char* exe_tls_base() {
+	// The main executable is always TLS module 1
+	tls_index_t index = { 1, 0 };
+	return static_cast<char*>(__tls_get_addr(&index));
+}
+
+static char* tls_slot_address(char* base, size_t offset) { return base + offset; }
+
+// Finds `thread_local` variables of the node executable by mangled name, leaving `found` false for
+// the ones which don't exist in this build (or all of them, if the executable is stripped).
+//
+// The names are internal to v8, so the dynamic linker can't resolve them: they are only in the
+// full symbol table (.symtab), which is not loaded into memory. Hence reading the file on disk.
+static void find_exe_tls_symbols(const char* const* names, size_t count, bool* found, size_t* offsets, size_t* sizes) {
+	memset(found, 0, count * sizeof(bool));
+	int fd = open("/proc/self/exe", O_RDONLY);
+	if (fd < 0) {
+		FIBERS_CHECK(!tls_symbols_required, "open(/proc/self/exe): %s", strerror(errno));
+		return;
+	}
+	struct stat st;
+	if (fstat(fd, &st) != 0) {
+		FIBERS_CHECK(!tls_symbols_required, "fstat(/proc/self/exe): %s", strerror(errno));
+		close(fd);
+		return;
+	}
+	void* map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if (map == MAP_FAILED) {
+		FIBERS_CHECK(!tls_symbols_required, "mmap(/proc/self/exe): %s", strerror(errno));
+		return;
+	}
+	const char* base = static_cast<const char*>(map);
+	// The ELF header gives the section header table; each section header has a type
+	const ElfW(Ehdr)* ehdr = reinterpret_cast<const ElfW(Ehdr)*>(base);
+	const ElfW(Shdr)* shdr = reinterpret_cast<const ElfW(Shdr)*>(base + ehdr->e_shoff);
+	for (size_t ii = 0; ii < ehdr->e_shnum; ++ii) {
+		if (shdr[ii].sh_type != SHT_SYMTAB) continue;
+		// A symbol table is an array of fixed-size entries; `sh_link` names the section holding
+		// their names, which each entry points into by offset
+		const ElfW(Sym)* sym = reinterpret_cast<const ElfW(Sym)*>(base + shdr[ii].sh_offset);
+		const char* strtab = base + shdr[shdr[ii].sh_link].sh_offset;
+		size_t sym_count = shdr[ii].sh_size / sizeof(ElfW(Sym));
+		for (size_t jj = 0; jj < sym_count; ++jj) {
+			// For a `thread_local` (STT_TLS), `st_value` is not an address but the variable's offset
+			// in the executable's TLS block, the same for every thread
+			if (ELF64_ST_TYPE(sym[jj].st_info) != STT_TLS) continue;
+			for (size_t kk = 0; kk < count; ++kk) {
+				if (strcmp(strtab + sym[jj].st_name, names[kk]) == 0) {
+					found[kk] = true;
+					offsets[kk] = sym[jj].st_value;
+					sizes[kk] = sym[jj].st_size;
+				}
+			}
+		}
+	}
+	munmap(map, st.st_size);
+}
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
+// A Mach-O `thread_local` symbol names a descriptor whose thunk returns the variable's address
+// for the calling thread.
+struct TlvDescriptor {
+	void* (*thunk)(TlvDescriptor*);
+	unsigned long key;
+	unsigned long offset;
+};
+
+static char* exe_tls_base() { return NULL; }
+static char* tls_slot_address(char*, size_t descriptor) {
+	TlvDescriptor* tlv = reinterpret_cast<TlvDescriptor*>(descriptor);
+	return static_cast<char*>(tlv->thunk(tlv));
+}
+
+// As on ELF, v8's internal names are only in the full symbol table. Unlike ELF, dyld maps that
+// table into memory with the rest of the image (the __LINKEDIT segment), so nothing is read from
+// disk.
+static void find_exe_tls_symbols(const char* const* names, size_t count, bool* found, size_t* offsets, size_t* sizes) {
+	memset(found, 0, count * sizeof(bool));
+	// Image 0 is the main executable
+	const struct mach_header_64* header = reinterpret_cast<const struct mach_header_64*>(_dyld_get_image_header(0));
+	FIBERS_CHECK(header && header->magic == MH_MAGIC_64, "the node executable is not a 64-bit Mach-O image");
+	// How far the image was moved from the addresses recorded in the file (ASLR)
+	intptr_t slide = _dyld_get_image_vmaddr_slide(0);
+	// The load commands follow the header. Two are needed: the __LINKEDIT segment, which says
+	// where the link-edit data is mapped, and LC_SYMTAB, which says where in that data the symbol
+	// and string tables are.
+	const struct segment_command_64* linkedit = NULL;
+	const struct symtab_command* symtab = NULL;
+	const struct load_command* cmd = reinterpret_cast<const struct load_command*>(header + 1);
+	for (uint32_t ii = 0; ii < header->ncmds; ++ii) {
+		if (cmd->cmd == LC_SEGMENT_64) {
+			const struct segment_command_64* segment = reinterpret_cast<const struct segment_command_64*>(cmd);
+			if (strcmp(segment->segname, SEG_LINKEDIT) == 0) linkedit = segment;
+		} else if (cmd->cmd == LC_SYMTAB) {
+			symtab = reinterpret_cast<const struct symtab_command*>(cmd);
+		}
+		cmd = reinterpret_cast<const struct load_command*>(reinterpret_cast<const char*>(cmd) + cmd->cmdsize);
+	}
+	if (!linkedit || !symtab) {
+		FIBERS_CHECK(!tls_symbols_required, "the node executable has no symbol table");
+		return;
+	}
+	// LC_SYMTAB's offsets are file offsets; this is the address file offset 0 would have if the
+	// whole file were mapped the way __LINKEDIT is
+	const char* base = reinterpret_cast<const char*>(slide + linkedit->vmaddr - linkedit->fileoff);
+	const struct nlist_64* sym = reinterpret_cast<const struct nlist_64*>(base + symtab->symoff);
+	const char* strtab = base + symtab->stroff;
+	for (uint32_t jj = 0; jj < symtab->nsyms; ++jj) {
+		// Skip debugger entries and anything not defined in a section of this image
+		if ((sym[jj].n_type & N_STAB) || (sym[jj].n_type & N_TYPE) != N_SECT) continue;
+		// Mach-O prefixes every C symbol with an underscore
+		const char* name = strtab + sym[jj].n_un.n_strx;
+		if (name[0] != '_') continue;
+		for (size_t kk = 0; kk < count; ++kk) {
+			if (strcmp(name + 1, names[kk]) == 0) {
+				found[kk] = true;
+				// The address of the variable's TlvDescriptor, not of the variable
+				offsets[kk] = sym[jj].n_value + slide;
+				// The symbol table has no sizes: the thread id is an int, the rest are pointers
+				sizes[kk] = strstr(names[kk], "thread_idE") ? sizeof(int) : sizeof(void*);
+			}
+		}
+	}
+}
+#else
+#error "fibers only knows how to find v8's thread-locals in ELF (Linux) and Mach-O (macOS) executables"
+#endif
+
+static void add_key_slot(pthread_key_t key) {
+	FIBERS_CHECK(slot_count < Coroutine::max_tls_slots, "%zu slots is one too many", slot_count + 1);
+	TlsSlot slot = { true, key, 0, sizeof(void*) };
+	slots[slot_count++] = slot;
+}
+
+static void add_tls_slot(size_t offset, size_t size) {
+	FIBERS_CHECK(slot_count < Coroutine::max_tls_slots, "%zu slots is one too many", slot_count + 1);
+	FIBERS_CHECK(size <= sizeof(uint64_t), "a %zu byte thread-local does not fit in a slot", size);
+	TlsSlot slot = { false, 0, offset, size };
+	slots[slot_count++] = slot;
+}
+
+static void save_slots(uint64_t* data) {
+	char* base = NULL;
+	for (size_t ii = 0; ii < slot_count; ++ii) {
+		if (slots[ii].is_key) {
+			data[ii] = reinterpret_cast<uint64_t>(pthread_getspecific(slots[ii].key));
+		} else {
+			if (!base) base = exe_tls_base();
+			data[ii] = 0;
+			memcpy(&data[ii], tls_slot_address(base, slots[ii].offset), slots[ii].size);
+		}
+	}
+}
+
+static void restore_slots(const uint64_t* data) {
+	char* base = NULL;
+	for (size_t ii = 0; ii < slot_count; ++ii) {
+		if (slots[ii].is_key) {
+			pthread_setspecific(slots[ii].key, reinterpret_cast<void*>(data[ii]));
+		} else {
+			if (!base) base = exe_tls_base();
+			memcpy(tls_slot_address(base, slots[ii].offset), &data[ii], slots[ii].size);
+		}
+	}
+}
 
 static size_t stack_size = 0;
 static size_t coroutines_created_ = 0;
@@ -75,6 +296,9 @@ namespace v8 {
 }
 #endif
 
+static bool scan_isolate_keys = true;
+static bool scan_thread_id_key = true;
+
 #ifndef WINDOWS
 static void* find_thread_id_key(void* arg)
 #else
@@ -85,8 +309,11 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 	assert(isolate != NULL);
 	v8::Locker locker(isolate);
 	isolate->Enter();
+	int thread_id = 0;
+	if (!scan_isolate_keys) goto done;
 
 	// First pass-- find isolate thread key
+	{
 #ifdef __MUSL__
 	// 128 is default max key in musl
 	for (pthread_key_t ii = 1; ii < 128; ++ii) {
@@ -100,9 +327,10 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 		}
 	}
 	assert(isolate_key != 0x7777);
+	}
 
 	// Second pass-- find data key
-	int thread_id = 0;
+	{
 #ifdef __MUSL__
 	for (pthread_key_t ii = 0; ii < 128; ++ii) {
 #else
@@ -118,8 +346,11 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 		}
 	}
 	assert(thread_data_key != 0x7777);
+	}
 
 	// Third pass-- find thread id key
+	if (!scan_thread_id_key) goto done;
+	{
 #ifdef __MUSL__
 	for (pthread_key_t ii = 0; ii < 128; ++ii) {
 #else
@@ -132,7 +363,9 @@ static DWORD __stdcall find_thread_id_key(LPVOID arg)
 		}
 	}
 	assert(thread_id_key != 0x7777);
+	}
 
+done:
 	isolate->Exit();
 	return NULL;
 }
@@ -149,9 +382,57 @@ void Coroutine::init(v8::Isolate* isolate) {
 	thread_data_key = v8::internal::Isolate::per_isolate_thread_data_key_;
 	thread_id_key = v8::internal::Isolate::thread_id_key_;
 #else
-	pthread_t thread;
-	pthread_create(&thread, NULL, find_thread_id_key, isolate);
-	pthread_join(thread, NULL);
+	// The two in an anonymous namespace are spelled with an `L` by compilers which mark internal
+	// linkage in the name, so each is looked for both ways.
+	static const char* const names[] = {
+		"_ZN2v88internal18g_current_isolate_E",
+		"_ZN2v88internal34g_current_per_isolate_thread_data_E",
+		"_ZN2v88internal12_GLOBAL__N_19thread_idE",
+		"_ZN2v84base12_GLOBAL__N_118thread_stack_startE",
+		"_ZN2v88internal12_GLOBAL__N_1L9thread_idE",
+		"_ZN2v84base12_GLOBAL__N_1L18thread_stack_startE",
+	};
+	bool found[6];
+	size_t offsets[6], sizes[6];
+	find_exe_tls_symbols(names, 6, found, offsets, sizes);
+	for (size_t ii = 2; ii < 4; ++ii) {
+		if (!found[ii] && found[ii + 2]) {
+			found[ii] = true;
+			offsets[ii] = offsets[ii + 2];
+			sizes[ii] = sizes[ii + 2];
+		}
+	}
+	// v8 9.0 moved the thread id to a `thread_local`, 11.x the isolate, per-thread data and the
+	// cached stack start. Without their symbols every fiber would share one v8 thread identity.
+	bool missing = V8_AT_LEAST(11, 0) ? !(found[0] && found[1] && found[2] && found[3]) :
+		V8_AT_LEAST(9, 0) ? !found[2] : false;
+	if (missing) {
+		fprintf(stderr, "fibers: could not find v8's thread-local symbols in the node executable "
+			"(isolate=%d thread_data=%d thread_id=%d stack_start=%d). Is the binary stripped?\n",
+			found[0], found[1], found[2], found[3]);
+		abort();
+	}
+	scan_isolate_keys = !found[0];
+	scan_thread_id_key = !found[0] && !found[2];
+	if (scan_isolate_keys) {
+		pthread_t thread;
+		pthread_create(&thread, NULL, find_thread_id_key, isolate);
+		pthread_join(thread, NULL);
+		add_key_slot(isolate_key);
+		add_key_slot(thread_data_key);
+		if (scan_thread_id_key) add_key_slot(thread_id_key);
+	}
+	for (size_t ii = 0; ii < 3; ++ii) {
+		if (found[ii]) add_tls_slot(offsets[ii], sizes[ii]);
+	}
+	if (found[3]) {
+		stack_start_slot = slot_count;
+		add_tls_slot(offsets[3], sizes[3]);
+	}
+	if (getenv("FIBERS_DEBUG_TLS")) {
+		fprintf(stderr, "fibers: tls symbols isolate=%d thread_data=%d thread_id=%d stack_start=%d; %zu slots\n",
+			found[0], found[1], found[2], found[3], slot_count);
+	}
 #endif
 }
 
@@ -184,19 +465,13 @@ void Coroutine::trampoline(void* that) {
 	// base is slightly different.
 	static_cast<Coroutine*>(that)->stack_base = (size_t*)_AddressOfReturnAddress() - stack_size + 16;
 #endif
-	if (!fls_data_pool.empty()) {
-		pthread_setspecific(thread_data_key, fls_data_pool.back());
-		pthread_setspecific(thread_id_key, fls_data_pool[fls_data_pool.size() - 2]);
-		pthread_setspecific(isolate_key, fls_data_pool[fls_data_pool.size() - 3]);
-		fls_data_pool.resize(fls_data_pool.size() - 3);
-	}
 	while (true) {
 		static_cast<Coroutine*>(that)->entry(const_cast<void*>(static_cast<Coroutine*>(that)->arg));
 	}
 }
 
 Coroutine::Coroutine() :
-	fls_data(v8_tls_keys),
+	fls_data(),
 	entry(NULL),
 	arg(NULL) {
 	stack.sptr = NULL;
@@ -204,7 +479,7 @@ Coroutine::Coroutine() :
 }
 
 Coroutine::Coroutine(entry_t& entry, void* arg) :
-	fls_data(v8_tls_keys),
+	fls_data(),
 	entry(entry),
 	arg(arg) {
 }
@@ -232,6 +507,10 @@ Coroutine* Coroutine::create_fiber(entry_t* entry, void* arg) {
 		return NULL;
 	}
 	coro_create(&coro->context, trampoline, coro, coro->stack.sptr, coro->stack.ssze);
+	if (stack_start_slot >= 0) {
+		// v8 caches the thread's stack start; a fiber's stack starts at the top of its own allocation
+		coro->fls_data[stack_start_slot] = reinterpret_cast<uint64_t>(coro->stack.sptr) + coro->stack.ssze;
+	}
 #ifdef CORO_FIBER
 	// Stupid hack. libcoro's project structure combined with Windows's CreateFiber functions makes
 	// it difficult to catch this error. Sometimes Windows will return `ERROR_NOT_ENOUGH_MEMORY` or
@@ -256,13 +535,8 @@ void Coroutine::reset(entry_t* entry, void* arg) {
 void Coroutine::transfer(Coroutine& next) {
 	assert(this != &next);
 #ifndef CORO_PTHREAD
-	fls_data[0] = pthread_getspecific(isolate_key);
-	fls_data[1] = pthread_getspecific(thread_id_key);
-	fls_data[2] = pthread_getspecific(thread_data_key);
-
-	pthread_setspecific(isolate_key, next.fls_data[0]);
-	pthread_setspecific(thread_id_key, next.fls_data[1]);
-	pthread_setspecific(thread_data_key, next.fls_data[2]);
+	save_slots(fls_data);
+	restore_slots(next.fls_data);
 
 	pthread_setspecific(coro_thread_key, &next);
 #endif
@@ -296,16 +570,8 @@ void Coroutine::finish(Coroutine& next, v8::Isolate* isolate) {
 		if (fiber_pool.size() < pool_size) {
 			fiber_pool.push_back(this);
 		} else {
-#if V8_MAJOR_VERSION > 4 || (V8_MAJOR_VERSION == 4 && V8_MINOR_VERSION >= 10)
 			// Clean up isolate data
 			isolate->DiscardThreadSpecificMetadata();
-#else
-			// If not supported, then we can mitigate v8's leakage by saving these thread locals.
-			fls_data_pool.reserve(fls_data_pool.size() + 3);
-			fls_data_pool.push_back(pthread_getspecific(isolate_key));
-			fls_data_pool.push_back(pthread_getspecific(thread_id_key));
-			fls_data_pool.push_back(pthread_getspecific(thread_data_key));
-#endif
 			// Can't delete right now because we're currently on this stack!
 			assert(delete_me == NULL);
 			delete_me = this;
